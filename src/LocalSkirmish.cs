@@ -21,7 +21,7 @@ using Il2CppBrokenArrow.Client.Ecs.Campaign;                             // Camp
 using Il2CppBrokenArrow.Shared.Ecs.Enums;                                // DifficultyLevel
 using Il2CppNetworkCommon.Enums;                                          // LobbyType
 
-[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "2.4.0", "BovineOverlord")]
+[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "2.4.1", "BovineOverlord")]
 [assembly: MelonGame(null, null)]
 
 namespace BALocalSkirmish
@@ -86,7 +86,7 @@ namespace BALocalSkirmish
         public override void OnInitializeMelon()
         {
             Instance = this;
-            LoggerInstance.Msg("BA Local Skirmish v2.4.0 initializing...");
+            LoggerInstance.Msg("BA Local Skirmish v2.4.1 initializing...");
             Patch(typeof(CreateLobbyPatch));
         }
 
@@ -151,6 +151,7 @@ namespace BALocalSkirmish
             _maps.Clear(); _mapNames.Clear();
             var svc = ScenariosSvc();
             if (svc == null) return;
+            var skirmish = new List<ScenarioSource>();
             var pve = new List<ScenarioSource>(); var solo = new List<ScenarioSource>();
             try
             {
@@ -160,11 +161,15 @@ namespace BALocalSkirmish
                     ScenarioSource s = null; try { s = list[i]; } catch { continue; }
                     if (s == null) continue;
                     var t = TypeOf(s);
-                    if (t == ScenarioType.MultiplayerPVE) pve.Add(s);
+                    // Dedicated skirmish scenarios have their own type and bot slots.
+                    // Do not confuse them with MultiplayerPVP (*_network) scenarios.
+                    if (t == ScenarioType.Skirmish) skirmish.Add(s);
+                    else if (t == ScenarioType.MultiplayerPVE) pve.Add(s);
                     else if (t == ScenarioType.Singleplayer) solo.Add(s);
                 }
             }
             catch (Exception e) { MelonLogger.Error("[LocalSkirmish] BuildMapList: " + e.Message); }
+            foreach (var s in skirmish) { _maps.Add(s); _mapNames.Add(NameOf(s) + "  (skirmish)"); }
             foreach (var s in pve) { _maps.Add(s); _mapNames.Add(NameOf(s)); }
             foreach (var s in solo) { _maps.Add(s); _mapNames.Add(NameOf(s) + "  (mission)"); }
         }
