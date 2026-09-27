@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <!-- This standalone managed-detour test needs .NET 6. The game's IL2CPP
+         detour backend is different and is not exercised by this fixture. -->
+    <RollForward>LatestPatch</RollForward>
+    <UseAppHost>false</UseAppHost>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+    <GameDir Condition="'$(GameDir)' == ''">D:\Games\Broken Arrow</GameDir>
+    <ML>$(GameDir)\MelonLoader\net6</ML>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="obj/SelectionFixture.cs" />
+    <Reference Include="0Harmony"><HintPath>$(ML)\0Harmony.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil"><HintPath>$(ML)\Mono.Cecil.dll</HintPath></Reference>
+    <Reference Include="MonoMod.Utils"><HintPath>$(ML)\MonoMod.Utils.dll</HintPath></Reference>
+    <Reference Include="MonoMod.RuntimeDetour"><HintPath>$(ML)\MonoMod.RuntimeDetour.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

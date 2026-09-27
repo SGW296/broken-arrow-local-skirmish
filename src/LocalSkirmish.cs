@@ -20,12 +20,31 @@ using Il2CppBrokenArrow.Client.Ecs.Decks_v2;                             // Prel
 using Il2CppBrokenArrow.Client.Ecs.Campaign;                             // CampaignService
 using Il2CppBrokenArrow.Shared.Ecs.Enums;                                // DifficultyLevel
 using Il2CppNetworkCommon.Enums;                                          // LobbyType
+using Il2CppBrokenArrow.MissionEditor;                                  // MissionLoader
+using Il2CppBrokenArrow.Client.Ecs.Configs;                             // GameSessionContext
+using Il2CppBrokenArrow.Client.Ecs.Controllers;                         // GameController
+using Il2CppBrokenArrow.ScriptEngine.Nodes.Spawn;
+using Il2CppBrokenArrow.ScriptEngine.Editor.Properties;
+using Il2CppBrokenArrow.Shared.Ecs.MissionEditor;
+using Il2CppBrokenArrow.MissionEditor.Inspector;
+using Il2CppBrokenArrow.Shared.Ecs;
+using Il2CppNetworkCommon.Enums.Common;
 
-[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "2.4.1", "BovineOverlord")]
+[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "2.6.3", "BovineOverlord")]
 [assembly: MelonGame(null, null)]
+// Hooks are installed explicitly below so failures can block launching. Without this
+// opt-out, MelonLoader installs them again and the second load prefix clears the plan.
+[assembly: HarmonyDontPatchAll]
 
 namespace BALocalSkirmish
 {
+    class AiSlot
+    {
+        public int PlayerUid;
+        public string Name;
+        public int DeckIndex = -1; // Same as player
+    }
+
     // One configurable game option (map size, day/night, time limit, starting income, etc.),
     // read from the scenario's own public-option definitions.
     class OptDef
@@ -58,6 +77,15 @@ namespace BALocalSkirmish
         readonly List<IDeckDataModel> _decks = new List<IDeckDataModel>();
         readonly List<string> _deckNames = new List<string>();
         int _deckIdx;
+        readonly List<AiSlot> _aiSlots = new List<AiSlot>();
+        int _aiSlotIdx;
+        readonly Dictionary<int, IDeckDataModel> _battleAiDecks = new Dictionary<int, IDeckDataModel>();
+        readonly Dictionary<int, int> _aiWaveCounts = new Dictionary<int, int>();
+        ScenarioSource _battleScenario;
+        IDeckDataModel _battlePlayerDeck;
+        GameSessionContext _deckSession;
+        bool _deckOverridesActive;
+        bool _aiLoadPending, _aiRestartAllowed, _aiDeckPatchReady;
         readonly List<OptDef> _opts = new List<OptDef>();
         readonly Dictionary<int, int> _optVals = new Dictionary<int, int>();
         int _diff = 2;          // 1=Easy, 2=Medium, 3=Hard (DifficultyLevel values)
@@ -66,7 +94,7 @@ namespace BALocalSkirmish
 
         // UI
         GameObject _root;
-        Text _mapLabel, _deckLabel, _statusLabel, _diffLabel, _previewCaption;
+        Text _mapLabel, _deckLabel, _aiPlayerLabel, _aiDeckLabel, _statusLabel, _diffLabel, _previewCaption;
         Image _previewImg;
         readonly List<Text> _optLabels = new List<Text>();
         Font _font;
@@ -86,8 +114,11 @@ namespace BALocalSkirmish
         public override void OnInitializeMelon()
         {
             Instance = this;
-            LoggerInstance.Msg("BA Local Skirmish v2.4.1 initializing...");
+            LoggerInstance.Msg("BA Local Skirmish v2.6.3 initializing (manual patch registration only)...");
             Patch(typeof(CreateLobbyPatch));
+            _aiDeckPatchReady = Patch(typeof(AiPlayerDeckPatch))
+                & Patch(typeof(DeckAssignmentPatch)) & Patch(typeof(EndBattleDeckPatch))
+                & Patch(typeof(AiSpawnPatch));
         }
 
         // Push the chosen game options into the live SceneLoadManager options dict.
@@ -116,10 +147,10 @@ namespace BALocalSkirmish
                 MelonLogger.Msg($"[LocalSkirmish] Applied {PendingOptions.Count} game option(s) to the load.");
             }
         }
-        void Patch(Type t)
+        bool Patch(Type t)
         {
-            try { HarmonyInstance.CreateClassProcessor(t).Patch(); LoggerInstance.Msg("Patched " + t.Name); }
-            catch (Exception e) { LoggerInstance.Error("Patch failed for " + t.Name + ": " + e); }
+            try { HarmonyInstance.CreateClassProcessor(t).Patch(); LoggerInstance.Msg("Patched " + t.Name); return true; }
+            catch (Exception e) { LoggerInstance.Error("Patch failed for " + t.Name + ": " + e); return false; }
         }
 
         // ---------- data ----------
@@ -177,6 +208,7 @@ namespace BALocalSkirmish
         void RefreshDecks()
         {
             _decks.Clear(); _deckNames.Clear(); _deckIdx = 0;
+            RefreshAiSlots();
             if (_mapIdx < 0 || _mapIdx >= _maps.Count) return;
             var ds = DecksSvc(); if (ds == null) return;
             try
@@ -192,6 +224,290 @@ namespace BALocalSkirmish
                 }
             }
             catch (Exception e) { MelonLogger.Error("[LocalSkirmish] RefreshDecks: " + e.Message); }
+        }
+
+        bool IsSkirmishMap()
+        {
+            return _mapIdx >= 0 && _mapIdx < _maps.Count
+                && TypeOf(_maps[_mapIdx]) == ScenarioType.Skirmish;
+        }
+
+        string AiDeckText()
+        {
+            int idx = _aiSlotIdx >= 0 && _aiSlotIdx < _aiSlots.Count ? _aiSlots[_aiSlotIdx].DeckIndex : -1;
+            return idx >= 0 && idx < _deckNames.Count
+                ? $"{idx + 1}/{_deckNames.Count}  {_deckNames[idx]}"
+                : "Same as player";
+        }
+
+        void RefreshAiSlots()
+        {
+            _aiSlots.Clear(); _aiSlotIdx = 0;
+            if (!IsSkirmishMap()) return;
+            try
+            {
+                var teams = _maps[_mapIdx].MetaFile.Teams;
+                if (teams == null) return;
+                bool skippedHuman = false;
+                var seen = new HashSet<int>();
+                foreach (var team in teams)
+                {
+                    if (team == null || team.Slots == null) continue;
+                    for (int i = 0; i < team.Slots.Count; i++)
+                    {
+                        var slot = team.Slots[i];
+                        if (slot == null) continue;
+                        // The offline loader chooses the first Alpha player as the human.
+                        // Built-in skirmish metadata marks even that slot as a bot.
+                        if ((int)team.TeamSide == 0 && !skippedHuman)
+                        { skippedHuman = true; seen.Add(slot.BotId); continue; }
+                        if (!slot.IsBot || slot.BotId < 0 || !seen.Add(slot.BotId)) continue;
+                        string name = string.IsNullOrEmpty(slot.PlayerName)
+                            ? $"{team.TeamName} player {i + 1}" : slot.PlayerName;
+                        _aiSlots.Add(new AiSlot { PlayerUid = slot.BotId, Name = name });
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                _aiSlots.Clear();
+                MelonLogger.Error("[LocalSkirmish] Read AI players: " + e.Message);
+            }
+        }
+
+        void ClearBattleAiDecks()
+        {
+            _battleAiDecks.Clear(); _battleScenario = null;
+            _battlePlayerDeck = null;
+            StopDeckOverrides();
+            _aiLoadPending = false; _aiRestartAllowed = false;
+        }
+
+        internal void StopDeckOverrides()
+        {
+            if (_deckOverridesActive)
+                MelonLogger.Msg("[LocalSkirmish] Deck and AI spawn overrides detached from the local battle.");
+            _deckOverridesActive = false; _deckSession = null;
+            _aiWaveCounts.Clear();
+        }
+
+        bool MatchesBattleScenario()
+        {
+            var active = ScenariosService.ActiveScenario;
+            return active != null && _battleScenario != null
+                && TypeOf(active) == ScenarioType.Skirmish
+                && string.Equals(active.Folder, _battleScenario.Folder, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(active.Name, _battleScenario.Name, StringComparison.Ordinal);
+        }
+
+        void PrepareDecks(ScenarioSource scenario, IDeckDataModel playerDeck)
+        {
+            ClearBattleAiDecks();
+            // Keep the working human preload path. Scripted AI waves need their own
+            // override because NodeSpawnMultiUnits deliberately bypasses player decks.
+            PreloadSharedPlayerDeck.IsMissionRestart = false;
+            PreloadSharedPlayerDeck.ScenarioStartDeck = playerDeck;
+            PreloadSharedPlayerDeck.Alpha = playerDeck;
+            PreloadSharedPlayerDeck.Bravo = playerDeck;
+            if (TypeOf(scenario) != ScenarioType.Skirmish) return;
+            foreach (var slot in _aiSlots)
+            {
+                if (slot.DeckIndex >= _decks.Count)
+                    throw new InvalidOperationException("Choose an available deck for " + slot.Name + ".");
+                _battleAiDecks.Add(slot.PlayerUid, slot.DeckIndex < 0 ? playerDeck : _decks[slot.DeckIndex]);
+            }
+            _battleScenario = scenario;
+            _battlePlayerDeck = playerDeck;
+            _aiLoadPending = true;
+        }
+
+        internal void BeginDeckLoad(MissionLoader loader)
+        {
+            StopDeckOverrides();
+            if (_battlePlayerDeck == null) return;
+            try
+            {
+                if (!MatchesBattleScenario() || (!_aiLoadPending && !(_aiRestartAllowed && PreloadSharedPlayerDeck.IsMissionRestart)))
+                {
+                    MelonLogger.Msg($"[LocalSkirmish] Deck plan discarded: matching scenario={MatchesBattleScenario()}, "
+                        + $"pending={_aiLoadPending}, restart={PreloadSharedPlayerDeck.IsMissionRestart}.");
+                    ClearBattleAiDecks(); return;
+                }
+
+                var session = loader._game.GameSession;
+                var human = session.CurrentPlayer;
+                if (human == null) throw new InvalidOperationException("Local player is unavailable; deck overrides skipped.");
+                _deckSession = session;
+                _deckOverridesActive = true;
+                _aiLoadPending = false;
+                _aiRestartAllowed = true;
+                MelonLogger.Msg($"[LocalSkirmish] Individual deck choices bound to the local battle: human UID {human.UID}, {_battleAiDecks.Count} AI choices.");
+            }
+            catch (Exception e)
+            {
+                ClearBattleAiDecks();
+                MelonLogger.Error("[LocalSkirmish] Bind deck choices: " + e);
+            }
+        }
+
+        internal void OverrideDeckAssignment(int playerUid, ref IDeckDataModel inputDeck)
+        {
+            if (!_deckOverridesActive) return;
+            try
+            {
+                if (!MatchesBattleScenario()) { ClearBattleAiDecks(); return; }
+                var human = _deckSession.CurrentPlayer;
+                if (human == null) { ClearBattleAiDecks(); return; }
+                IDeckDataModel chosen;
+                if (playerUid == human.UID) chosen = _battlePlayerDeck;
+                else
+                {
+                    var player = _deckSession.GetPlayer(playerUid);
+                    if (player == null || !player.IsBot || !_battleAiDecks.TryGetValue(playerUid, out chosen)) return;
+                }
+                if (chosen == null) return;
+                string originalName = inputDeck == null ? "(none)" : inputDeck.Name;
+                inputDeck = chosen;
+                MelonLogger.Msg($"[LocalSkirmish] Player ID {playerUid}: deck request '{originalName}' -> selected '{chosen.Name}'.");
+                // Let SetDeck run normally. Its returned clone is then used by the game's
+                // economy/shop updates, including UnitGroupAndNameSystem.ChangePlayerDeck.
+            }
+            catch (Exception e)
+            {
+                ClearBattleAiDecks();
+                MelonLogger.Error("[LocalSkirmish] Override deck assignment: " + e);
+            }
+        }
+
+        // Replace the node input BEFORE native OnActivated calculates its completion count.
+        // The request retains this new object during async spawning; the node's original
+        // shared input is restored by the postfix, without changing any scenario pool.
+        internal void OverrideAiSpawn(NodeSpawnMultiUnits node)
+        {
+            if (!_deckOverridesActive || node == null || node.PlayerOwner == null) return;
+            int uid = node.PlayerOwner.DataUID;
+            IDeckDataModel deck = null;
+            try
+            {
+                if (!MatchesBattleScenario()) { ClearBattleAiDecks(); return; }
+                var human = _deckSession.CurrentPlayer;
+                if (human == null) { ClearBattleAiDecks(); return; }
+                if (uid == human.UID || !_battleAiDecks.TryGetValue(uid, out deck)) return;
+                var player = _deckSession.GetPlayer(uid);
+                if (player == null || !player.IsBot) return;
+                var original = node.UnitInfo;
+                if (original == null || original.Units == null || original.Units.Length == 0) return;
+
+                var slots = new List<DeckSlotModel>();
+                if (deck?.GetSlots != null)
+                    foreach (var pair in deck.GetSlots)
+                        if (pair.Value != null)
+                            foreach (var slot in pair.Value)
+                                if (slot != null && slot.IsValid && slot.Count > 0) slots.Add(slot);
+
+                DataBaseService database = null;
+                Session.TryGetService<DataBaseService>(out database, false);
+                var replacements = new List<UnitModData>();
+                foreach (var requested in original.Units)
+                    ReplaceSpawnUnit(requested, slots, database, replacements);
+                node.UnitInfo = new MultiUnits { Units = new Il2CppReferenceArray<UnitModData>(replacements.ToArray()) };
+                // Native empty-input handling completes the node immediately. Clear the
+                // previous activation's output so it cannot send old units down the graph.
+                if (replacements.Count == 0) node.Units = new UnitObject(0);
+
+                _aiWaveCounts.TryGetValue(uid, out int wave);
+                _aiWaveCounts[uid] = ++wave;
+                if (wave <= 3 || wave % 50 == 0)
+                {
+                    var ids = new List<string>();
+                    foreach (var unit in replacements)
+                    {
+                        ids.Add(unit.UnitID.ToString());
+                        foreach (var cargo in unit.Cargo.Slots) ids.Add("cargo:" + cargo.UnitID);
+                    }
+                    MelonLogger.Msg($"[LocalSkirmish] AI spawn UID {uid}, deck '{deck?.Name}', wave {wave}: "
+                        + $"{original.TotalUnitsCount} -> {node.UnitInfo.TotalUnitsCount} units [{string.Join(",", ids)}].");
+                }
+            }
+            catch (Exception e)
+            {
+                // Once this bot's deck is selected, a conversion error must not silently
+                // spawn the stock roster. An empty wave follows the native completion path.
+                if (deck != null)
+                {
+                    node.UnitInfo = new MultiUnits { Units = new Il2CppReferenceArray<UnitModData>(0) };
+                    node.Units = new UnitObject(0);
+                }
+                MelonLogger.Error($"[LocalSkirmish] AI spawn UID {uid}: {e}");
+            }
+        }
+
+        static void ReplaceSpawnUnit(UnitModData requested, List<DeckSlotModel> slots,
+            DataBaseService database, List<UnitModData> output)
+        {
+            if (requested == null) return;
+            // A scripted loaded transport represents its passengers' deck cards. Build
+            // each passenger with the transport actually selected on that card, instead
+            // of retaining a stock vehicle or putting unrelated cargo in it.
+            var passengers = requested.Cargo?.Slots;
+            if (passengers != null && passengers.Count > 0)
+            {
+                foreach (var passenger in passengers) ReplaceSpawnUnit(passenger, slots, database, output);
+                return;
+            }
+            var selected = PickSpawnSlot(requested, slots, database);
+            if (selected == null) return; // Missing categories never fall back to default units.
+            var unit = MakeSpawnUnit(selected.UnitID, selected.Category, selected.UnitSkinId, selected.ModList);
+            if (selected.IsValidTransport && selected.TransportCount > 0)
+            {
+                var transportData = selected.GetTransportUnitData();
+                if (transportData != null)
+                {
+                    var transport = MakeSpawnUnit(selected.TransportID, transportData.CategoryType,
+                        selected.TransportSkinId, selected.TransportModList);
+                    transport.Cargo.Slots.Add(unit);
+                    output.Add(transport);
+                    return;
+                }
+            }
+            output.Add(unit);
+        }
+
+        static DeckSlotModel PickSpawnSlot(UnitModData requested, List<DeckSlotModel> slots, DataBaseService database)
+        {
+            var original = database?.GetUnitById(requested.UnitID, false);
+            DeckSlotModel selected = null;
+            int bestScore = -1, weight = 0;
+            foreach (var slot in slots)
+            {
+                if (slot.Category != requested.Category) continue;
+                var data = slot.GetUnitData();
+                if (data == null) continue;
+                // Prefer the same physical type and role, such as AA versus artillery.
+                // Card counts weight variety, but the scenario still controls wave timing.
+                int score = original == null ? 0
+                    : (data.Type == original.Type ? 4 : 0) + (data.Role == original.Role ? 2 : 0);
+                if (score < bestScore) continue;
+                if (score > bestScore) { bestScore = score; weight = 0; }
+                weight += slot.Count;
+                if (_rng.Next(weight) < slot.Count) selected = slot;
+            }
+            return selected;
+        }
+
+        static UnitModData MakeSpawnUnit(int id, UnitCategoryType category, int skin,
+            Il2CppSystem.Collections.Generic.List<DeckModData> mods)
+        {
+            var unit = new UnitModData
+            {
+                UnitID = id, Category = category, SkinId = skin,
+                Items = new Il2CppSystem.Collections.Generic.List<ModDataItem>(),
+                Cargo = new CargoData { Slots = new Il2CppSystem.Collections.Generic.List<UnitModData>() }
+            };
+            if (mods != null)
+                foreach (var mod in mods)
+                    if (mod != null) unit.Items.Add(new ModDataItem(mod.ModID, mod.OptionID));
+            return unit;
         }
 
         void RefreshOptions()
@@ -348,7 +664,7 @@ namespace BALocalSkirmish
             const float rowH = 34f;
             const float headH = 52f;
             int optRows = Math.Min(_opts.Count, 6);
-            int rows = 2 + (_hasDiff ? 1 : 0) + optRows; // map, deck, [diff], options
+            int rows = 2 + (_aiSlots.Count > 0 ? 2 : 0) + (_hasDiff ? 1 : 0) + optRows;
             float bodyH = rows * rowH;
             float h = headH + 24f + bodyH + 64f + 30f;   // header + pad + rows + buttons + status
             if (h < 380f) h = 380f;                       // room for preview
@@ -376,14 +692,21 @@ namespace BALocalSkirmish
                 MakeImage(pt, colX + 250f, y, 500f, rowH - 4f, CRow);
                 MakeLabel(pt, labX, y, 170f, 26f, name, 15, TextAnchor.MiddleLeft, nameCol);
                 MakeButton(pt, ltX, y, 30f, 26f, "<", dec);
-                var vl = MakeLabel(pt, valX + 130f, y, 260f, 26f, val, 15, TextAnchor.MiddleLeft, CVal);
+                var vl = MakeLabel(pt, valX + 117.5f, y, 235f, 26f, val, 15, TextAnchor.MiddleLeft, CVal);
+                vl.horizontalOverflow = HorizontalWrapMode.Wrap;
+                vl.resizeTextForBestFit = true; vl.resizeTextMinSize = 10; vl.resizeTextMaxSize = 15;
                 MakeButton(pt, rtX, y, 30f, 26f, ">", inc);
                 keep?.Invoke(vl);
                 y -= rowH;
             }
 
             Row("Map", CLabel, "-", () => CycleMap(-1), () => CycleMap(1), t => _mapLabel = t);
-            Row("Deck", CLabel, "-", () => CycleDeck(-1), () => CycleDeck(1), t => _deckLabel = t);
+            Row("Player deck", CLabel, "-", () => CycleDeck(-1), () => CycleDeck(1), t => _deckLabel = t);
+            if (_aiSlots.Count > 0)
+            {
+                Row("AI player", CLabel, "-", () => CycleAiPlayer(-1), () => CycleAiPlayer(1), t => _aiPlayerLabel = t);
+                Row("AI deck", CLabel, AiDeckText(), () => CycleAiDeck(-1), () => CycleAiDeck(1), t => _aiDeckLabel = t);
+            }
             if (_hasDiff)
                 Row("Difficulty", new Color(1f, 0.82f, 0.55f), _diffNames[_diff], () => CycleDiff(-1), () => CycleDiff(1), t => _diffLabel = t);
             for (int i = 0; i < optRows; i++)
@@ -415,7 +738,7 @@ namespace BALocalSkirmish
         void DestroyUI()
         {
             if (_root != null) { try { UnityEngine.Object.Destroy(_root); } catch { } _root = null; }
-            _mapLabel = _deckLabel = _statusLabel = _diffLabel = _previewCaption = null; _previewImg = null; _optLabels.Clear();
+            _mapLabel = _deckLabel = _aiPlayerLabel = _aiDeckLabel = _statusLabel = _diffLabel = _previewCaption = null; _previewImg = null; _optLabels.Clear();
         }
 
         void UpdateLabels()
@@ -423,13 +746,18 @@ namespace BALocalSkirmish
             if (_mapLabel != null) _mapLabel.text = _maps.Count > 0 ? $"{_mapIdx + 1}/{_maps.Count}  {_mapNames[_mapIdx]}" : "(none)";
             if (_previewCaption != null) _previewCaption.text = _maps.Count > 0 ? _mapNames[_mapIdx] : "";
             if (_deckLabel != null) _deckLabel.text = _decks.Count > 0 ? $"{_deckIdx + 1}/{_decks.Count}  {_deckNames[_deckIdx]}" : "(no valid decks)";
+            if (_aiPlayerLabel != null) _aiPlayerLabel.text = _aiSlots.Count > 0
+                ? $"{_aiSlotIdx + 1}/{_aiSlots.Count}  {_aiSlots[_aiSlotIdx].Name}" : "(no AI players)";
+            if (_aiDeckLabel != null) _aiDeckLabel.text = AiDeckText();
             if (_diffLabel != null) _diffLabel.text = _diffNames[Math.Max(0, Math.Min(3, _diff))];
             for (int i = 0; i < _optLabels.Count && i < _opts.Count; i++)
                 if (_optLabels[i] != null) _optLabels[i].text = OptValueText(_opts[i]);
             if (_statusLabel != null)
             {
                 string extra = _opts.Count > 0 ? $"{_opts.Count} map option(s)." : "This map has no extra options.";
-                _statusLabel.text = $"Map {_mapIdx + 1}/{_maps.Count}.  {extra}  Set difficulty & deck, then Start.";
+                int customCount = _aiSlots.FindAll(s => s.DeckIndex >= 0).Count;
+                string hint = IsSkirmishMap() ? $"AI decks saved per player ({customCount}/{_aiSlots.Count} custom)." : "Set difficulty & deck, then Start.";
+                _statusLabel.text = $"Map {_mapIdx + 1}/{_maps.Count}.  {extra}  {hint}";
             }
         }
 
@@ -437,6 +765,7 @@ namespace BALocalSkirmish
         public void OpenSetup()
         {
             if (_root != null) return;
+            ClearBattleAiDecks();
             BuildMapList(); _mapIdx = 0; RefreshDecks(); RefreshOptions(); BuildUI();
             MelonLogger.Msg($"[LocalSkirmish] Setup opened ({_maps.Count} maps).");
         }
@@ -449,6 +778,22 @@ namespace BALocalSkirmish
         }
         void CycleDeck(int dir)
         { if (_decks.Count == 0) return; _deckIdx = (_deckIdx + dir + _decks.Count) % _decks.Count; UpdateLabels(); }
+        void CycleAiDeck(int dir)
+        {
+            if (!IsSkirmishMap() || _aiSlotIdx < 0 || _aiSlotIdx >= _aiSlots.Count) return;
+            // Include the default entry when wrapping in either direction.
+            int count = _decks.Count + 1;
+            var slot = _aiSlots[_aiSlotIdx];
+            slot.DeckIndex = ((slot.DeckIndex + 1 + dir) % count + count) % count - 1;
+            UpdateLabels();
+        }
+        void CycleAiPlayer(int dir)
+        {
+            if (_aiSlots.Count == 0) return;
+            int count = _aiSlots.Count;
+            _aiSlotIdx = ((_aiSlotIdx + dir) % count + count) % count;
+            UpdateLabels();
+        }
         void CycleDiff(int dir)
         { _diff += dir; if (_diff < 1) _diff = 3; if (_diff > 3) _diff = 1; UpdateLabels(); }
         void RandomMap()
@@ -465,11 +810,14 @@ namespace BALocalSkirmish
                 if (_deckIdx < 0 || _deckIdx >= _decks.Count) { if (_statusLabel != null) _statusLabel.text = "This map has no valid deck for you."; return; }
                 var scenario = _maps[_mapIdx];
                 var deck = _decks[_deckIdx];
-
-                PreloadSharedPlayerDeck.IsMissionRestart = false;
-                PreloadSharedPlayerDeck.ScenarioStartDeck = deck;
-                PreloadSharedPlayerDeck.Alpha = deck;
-                PreloadSharedPlayerDeck.Bravo = deck;
+                if (IsSkirmishMap() && !_aiDeckPatchReady)
+                {
+                    if (_statusLabel != null) _statusLabel.text = "Skirmish deck support could not load. Check the MelonLoader log.";
+                    return;
+                }
+                var st = ISceneTransition.Instance;
+                if (st == null) { if (_statusLabel != null) _statusLabel.text = "Scene transition unavailable."; return; }
+                PrepareDecks(scenario, deck);
 
                 // difficulty (scenario scripts read CampaignService.Difficulty)
                 if (_hasDiff)
@@ -487,18 +835,52 @@ namespace BALocalSkirmish
                 PendingOptions.Clear();
                 foreach (var kv in _optVals) PendingOptions[kv.Key] = kv.Value;
 
-                var st = ISceneTransition.Instance;
-                if (st == null) { if (_statusLabel != null) _statusLabel.text = "Scene transition unavailable."; return; }
-
-                MelonLogger.Msg($"[LocalSkirmish] Launching '{_mapNames[_mapIdx]}' deck '{_deckNames[_deckIdx]}' with {PendingOptions.Count} option(s).");
+                MelonLogger.Msg($"[LocalSkirmish] Launching '{_mapNames[_mapIdx]}' player deck '{_deckNames[_deckIdx]}', {_battleAiDecks.Count} individual AI deck(s) with {PendingOptions.Count} option(s).");
                 DestroyUI();
                 st.ChangeScene(scenario);
                 _appliedLogged = false;
                 _applyFrames = 300;      // keep pushing options in until the battle load consumes them
                 ApplyOptionsOnce();      // and try immediately
             }
-            catch (Exception e) { MelonLogger.Error("[LocalSkirmish] StartBattle: " + e); }
+            catch (Exception e)
+            {
+                ClearBattleAiDecks();
+                if (_statusLabel != null) _statusLabel.text = e.Message;
+                MelonLogger.Error("[LocalSkirmish] StartBattle: " + e);
+            }
         }
+    }
+
+    [HarmonyPatch(typeof(MissionLoader), nameof(MissionLoader.LoadPlayersDeck))]
+    static class AiPlayerDeckPatch
+    {
+        static void Prefix(MissionLoader __instance) { Core.Instance?.BeginDeckLoad(__instance); }
+    }
+
+    [HarmonyPatch(typeof(SharedPlayerDeck), nameof(SharedPlayerDeck.SetDeck))]
+    static class DeckAssignmentPatch
+    {
+        static void Prefix(int playerUID, ref IDeckDataModel inputDeck)
+        { Core.Instance?.OverrideDeckAssignment(playerUID, ref inputDeck); }
+    }
+
+    [HarmonyPatch(typeof(GameController), nameof(GameController.Dispose))]
+    static class EndBattleDeckPatch
+    {
+        static void Prefix() { Core.Instance?.StopDeckOverrides(); }
+    }
+
+    [HarmonyPatch(typeof(NodeSpawnMultiUnits), nameof(NodeSpawnMultiUnits.OnActivated))]
+    static class AiSpawnPatch
+    {
+        static void Prefix(NodeSpawnMultiUnits __instance, out MultiUnits __state)
+        {
+            __state = __instance.UnitInfo;
+            Core.Instance?.OverrideAiSpawn(__instance);
+        }
+
+        static void Postfix(NodeSpawnMultiUnits __instance, MultiUnits __state)
+        { __instance.UnitInfo = __state; }
     }
 
     [HarmonyPatch(typeof(NetworkLobbyService), nameof(NetworkLobbyService.CreateLobby))]
