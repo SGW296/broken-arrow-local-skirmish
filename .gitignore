@@ -6,3 +6,4 @@ obj/
 
 # Local tooling
 *.log
+diagnostics/

@@ -36,8 +36,46 @@ Play button, which runs EasyAntiCheat and blocks mods), then click **Skirmish**.
 3. Choose your **map**, **deck**, **difficulty**, and any map-specific options (income, time limit,
    day/night, map size), then **Start Battle**.
 
+On dedicated skirmish maps, choose an **AI player**, then choose that player's **AI deck**. Repeat for
+each AI ally or opponent you want to customize. Switching between AI players keeps their individual
+choices; the status line shows how many have custom decks. Your **Player deck** stays separate.
+
+Each AI defaults to **Same as player**. Use the deck arrows to choose from the available decks, including
+your saved custom decks. Create or edit custom decks in the game's deck builder before opening setup.
+The human slot is excluded from the AI player list. The inspected built-in maps have nine AI slots.
+
+Changing the map or reopening setup resets every AI choice to **Same as player**. These controls are only
+shown for dedicated skirmish maps; PvE scenarios and campaign missions keep their existing deck setup.
+
+v2.6.3 fixes duplicate hook registration in the mod. MelonLoader's automatic registration and the
+mod's manual registration were both running. The second load callback cleared the selected AI decks
+before any units spawned. Hooks are now registered only once.
+
+v2.6.2 replaces the scripted AI spawn lists with units from each AI's chosen deck. The built-in maps
+spawn their AI directly, bypassing the normal player deck system. Changing deck assignments alone did
+not change the AI's units in earlier versions.
+
+The AI still follows the map's scripted wave timing and orders. Units are selected from the matching
+category in its chosen deck, with a preference for the same unit type and role. Selected upgrades,
+skins, and card transports are carried across. Categories missing from a deck are skipped. Deck card
+counts weight unit selection; they do not impose a finite inventory on the scripted waves.
+
 You spawn in with your deck against the AI opponents (and any AI allies the scenario defines). Everything
 runs on your machine.
+
+## Reporting deck or spawn problems
+
+There is a report that individually selected AI decks still produce the human player's units in v2.6.3. This is under investigation. The managed regression checks pass, but they do not reproduce a live match and do not establish that this report is fixed.
+
+If you see this problem:
+
+1. Use the latest repository download, select clearly different decks for yourself and at least two AI players, and start a battle.
+2. After observing the problem, close the game and double-click **`collect-diagnostics.bat`** in the extracted download. Do this before launching the game again, because the next launch replaces the log.
+3. Open the new folder under `diagnostics`. Review and share `summary.txt`, `Latest.log`, and `deck-and-spawn-trace.txt` with your report. Include the map, AI player names and selected decks, and what units actually appeared. An unknown map does not prevent collecting the report.
+
+The collector records installed mod file hashes and copies the current MelonLoader log. It does not upload anything or change the game. Logs can include local folder paths and player/deck names. If the log is missing, the summary explains how to collect it after a modded launch.
+
+Infantry cards with a valid selected transport and a positive transport count are intended to spawn loaded into that transport. On-foot infantry is not automatically a game limitation. Include whether the affected cards have transports selected. Also report unusually slow vehicles, such as the M8 Thunderbolt; the cause is unconfirmed. The map controls orders and wave timing, while other installed mods may change unit data.
 
 ## Pairs with the Balance Mod
 
@@ -48,12 +86,11 @@ battle to play in, so if you want custom stats, install both.)
 ## Limits
 
 - **Offline only.** It does not create real online lobbies with a modded client.
-- **Which maps.** The panel lists the maps that can be played vs AI offline: the built-in **PvE / co-op**
-  scenarios and **campaign** missions (plus any Workshop co-op scenarios you've installed). Plain multiplayer
-  / `*_Skirmish` maps are **not** listed — they ship with empty player slots that only the online lobby fills,
-  so they can't be populated with an army + AI offline. Many MP terrains do have a PvE version that *is* listed
-  (Kaliningrad, Narva, Daugavpils, Ignalina, Coal Mountain, River, Ruda, Klaipeda, Parnu, Baltiysk, Refinery).
-  To play a specific MP terrain vs AI, make a PvE scenario on it in the in-game mission editor and it'll appear.
+- **Which maps.** The panel lists dedicated **skirmish** maps first, followed by **PvE / co-op** scenarios
+  and **campaign** missions (including installed Workshop scenarios of these types). Skirmish maps are
+  marked `(skirmish)` and use the game's separate `ScenarioType.Skirmish` type; the built-in `*_Skirmish`
+  scenarios already define bot slots. Plain multiplayer **PvP** (`*_network`) scenarios remain excluded.
+  Map availability depends on your installed game version and content.
 - Difficulty and the map's options are honoured. Your first valid deck for the map is preselected, and you
   can change it in the panel.
 
