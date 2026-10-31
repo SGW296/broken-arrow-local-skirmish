@@ -5,6 +5,7 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+    <PlatformTarget>x64</PlatformTarget>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
 
@@ -17,6 +18,8 @@
 
   <ItemGroup>
     <Compile Include="LocalSkirmish.cs" />
+    <Compile Include="LobbySettings.cs" />
+    <Compile Include="LobbyUI.cs" />
   </ItemGroup>
 
   <!-- These assemblies are generated the first time you launch the game with

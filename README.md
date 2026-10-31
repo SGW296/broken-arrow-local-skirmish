@@ -1,5 +1,13 @@
 # Broken Arrow: Local Skirmish
 
+> **Local UI fork (2.7.0, branch `ui/clear-local-lobby`)**: searchable selectors, scenario filters,
+> clearer labels and AI slot/team details, paged options, remembered setups and named presets.
+> See [implementation and validation notes](docs/UI-ITERATION.md). Built against the local v1.2.0
+> assemblies and checked with managed regressions; live game testing is still required.
+> `dist/BALocalSkirmish.dll` remains the original upstream 2.6.3 binary. Build this fork from source
+> or use its separate output package with manual DLL replacement. The original installer below
+> installs the original binary.
+
 A MelonLoader mod that turns Broken Arrow's **Skirmish** button into a real, **fully-local battle against
 the AI**, with a proper setup panel for map, deck, difficulty and the map's own game options. No online
 lobby, no anti-cheat, no network required.
@@ -44,7 +52,8 @@ Each AI defaults to **Same as player**. Use the deck arrows to choose from the a
 your saved custom decks. Create or edit custom decks in the game's deck builder before opening setup.
 The human slot is excluded from the AI player list. The inspected built-in maps have nine AI slots.
 
-Changing the map or reopening setup resets every AI choice to **Same as player**. These controls are only
+This UI fork remembers settings per scenario on map change, close and launch, with named presets.
+Restoring defaults resets AI choices to **Same as your deck**. These controls are only
 shown for dedicated skirmish maps; PvE scenarios and campaign missions keep their existing deck setup.
 
 v2.6.3 fixes duplicate hook registration in the mod. MelonLoader's automatic registration and the

@@ -1,7 +1,8 @@
 # Modding guide: BA Local Skirmish
 
-There is no config file. Install the mod and click Skirmish. This guide only covers building the mod from
-source, in case you want to compile your own copy.
+This local UI fork remembers settings in `UserData\BALocalSkirmish\lobby.json` and supports named
+presets per scenario. See [UI-ITERATION.md](UI-ITERATION.md) for scope, behaviour and test limits.
+This guide covers building from source.
 
 ## Building from source
 
@@ -20,5 +21,17 @@ dotnet build -c Release src\BALocalSkirmish.csproj -p:GameDir="D:\Games\Broken A
 ```
 
 Point `-p:GameDir` at your own install, or edit the default `<GameDir>` line in `src\BALocalSkirmish.csproj`.
-The output `BALocalSkirmish.dll` lands in `src\bin\Release\`. Copy it into the game's `Mods\` folder, or
-overwrite `dist\BALocalSkirmish.dll` and re-run `install.bat`.
+The output `BALocalSkirmish.dll` lands in `src\bin\Release\`. Close the game, keep the original DLL
+outside `Mods`, then replace only `Mods\BALocalSkirmish.dll`. Keep your existing loader and launcher.
+`dist\BALocalSkirmish.dll` is retained as the upstream original, not this fork's output.
+
+Checks (PowerShell, .NET SDK on PATH):
+
+```powershell
+./tests/Test-Lobby.ps1
+./tests/Test-DeckSelection.ps1
+./tests/Test-PatchRegistration.ps1 -GameDir 'C:\Games\Broken Arrow'
+```
+
+The lobby fixture runs production selection/persistence methods with managed stand-ins; it does not
+start Unity. An in-game smoke checklist is in `UI-ITERATION.md`.

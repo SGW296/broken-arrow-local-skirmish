@@ -30,7 +30,7 @@ using Il2CppBrokenArrow.MissionEditor.Inspector;
 using Il2CppBrokenArrow.Shared.Ecs;
 using Il2CppNetworkCommon.Enums.Common;
 
-[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "2.6.3", "BovineOverlord")]
+[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "2.7.0", "BovineOverlord; local UI fork")]
 [assembly: MelonGame(null, null)]
 // Hooks are installed explicitly below so failures can block launching. Without this
 // opt-out, MelonLoader installs them again and the second load prefix clears the plan.
@@ -42,25 +42,15 @@ namespace BALocalSkirmish
     {
         public int PlayerUid;
         public string Name;
+        public int TeamSide;
+        public string TeamName;
         public int DeckIndex = -1; // Same as player
-    }
-
-    // One configurable game option (map size, day/night, time limit, starting income, etc.),
-    // read from the scenario's own public-option definitions.
-    class OptDef
-    {
-        public int Uid;
-        public string Label;
-        public bool IsEnum;
-        public List<int> EnumVals = new List<int>();
-        public List<string> EnumLabels = new List<string>();
-        public int Min, Max, Step, Default;
     }
 
     // v2.2: Skirmish setup panel with map + deck + the scenario's own game options (income, time
     // limit, day/night, map size, ...). Options are injected into SceneLoadManager.ScenarioPublicOptions
     // at load time so the local battle honours them.
-    public class Core : MelonMod
+    public partial class Core : MelonMod
     {
         public static Core Instance;
         static readonly System.Random _rng = new System.Random();
@@ -114,7 +104,7 @@ namespace BALocalSkirmish
         public override void OnInitializeMelon()
         {
             Instance = this;
-            LoggerInstance.Msg("BA Local Skirmish v2.6.3 initializing (manual patch registration only)...");
+            LoggerInstance.Msg("BA Local Skirmish v2.7.0 UI fork initializing (manual patch registration only)...");
             Patch(typeof(CreateLobbyPatch));
             _aiDeckPatchReady = Patch(typeof(AiPlayerDeckPatch))
                 & Patch(typeof(DeckAssignmentPatch)) & Patch(typeof(EndBattleDeckPatch))
@@ -200,9 +190,11 @@ namespace BALocalSkirmish
                 }
             }
             catch (Exception e) { MelonLogger.Error("[LocalSkirmish] BuildMapList: " + e.Message); }
-            foreach (var s in skirmish) { _maps.Add(s); _mapNames.Add(NameOf(s) + "  (skirmish)"); }
-            foreach (var s in pve) { _maps.Add(s); _mapNames.Add(NameOf(s)); }
-            foreach (var s in solo) { _maps.Add(s); _mapNames.Add(NameOf(s) + "  (mission)"); }
+            foreach (var group in new[] { skirmish, pve, solo })
+            {
+                group.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(NameOf(a), NameOf(b)));
+                foreach (var s in group) { _maps.Add(s); _mapNames.Add(LobbyText.MapName(NameOf(s))); }
+            }
         }
 
         void RefreshDecks()
@@ -264,7 +256,8 @@ namespace BALocalSkirmish
                         if (!slot.IsBot || slot.BotId < 0 || !seen.Add(slot.BotId)) continue;
                         string name = string.IsNullOrEmpty(slot.PlayerName)
                             ? $"{team.TeamName} player {i + 1}" : slot.PlayerName;
-                        _aiSlots.Add(new AiSlot { PlayerUid = slot.BotId, Name = name });
+                        _aiSlots.Add(new AiSlot { PlayerUid = slot.BotId, Name = name,
+                            TeamSide = (int)team.TeamSide, TeamName = team.TeamName });
                     }
                 }
             }
@@ -533,7 +526,9 @@ namespace BALocalSkirmish
                     if (po == null) continue;
                     var od = new OptDef();
                     try { od.Uid = po.Uid; } catch { }
-                    try { od.Label = Clean(po.Name); } catch { od.Label = "Opt " + od.Uid; }
+                    try { od.RawName = po.Name; od.Label = LobbyText.OptionName(po.Name, Clean(po.Name)); }
+                    catch { od.Label = "Option " + od.Uid; }
+                    try { od.Order = po.Order; } catch { }
                     try { od.Default = po.DefaultValue; } catch { }
                     try { od.Min = po.MinValue; od.Max = po.MaxValue; od.Step = po.StepValue > 0 ? po.StepValue : 1; } catch { }
                     try
@@ -542,13 +537,21 @@ namespace BALocalSkirmish
                         if (dd != null && dd.Count > 0)
                         {
                             od.IsEnum = true;
-                            foreach (var kv in dd) { od.EnumVals.Add(kv.Key); od.EnumLabels.Add(Clean(kv.Value)); }
+                            var keys = new List<int>();
+                            foreach (var kv in dd) keys.Add(kv.Key);
+                            keys.Sort();
+                            foreach (int key in keys)
+                            {
+                                od.EnumVals.Add(key);
+                                od.EnumLabels.Add(LobbyText.OptionValue(od.RawName, dd[key], Clean(dd[key])));
+                            }
                         }
                     }
                     catch { }
-                    _opts.Add(od);
-                    _optVals[od.Uid] = od.Default;
+                    if (!_optVals.ContainsKey(od.Uid))
+                    { _opts.Add(od); _optVals[od.Uid] = od.Default; }
                 }
+                _opts.Sort((a, b) => a.Order != b.Order ? a.Order.CompareTo(b.Order) : a.Uid.CompareTo(b.Uid));
             }
             catch (Exception e) { MelonLogger.Error("[LocalSkirmish] RefreshOptions: " + e.Message); }
         }
@@ -583,199 +586,6 @@ namespace BALocalSkirmish
             UpdateLabels();
         }
 
-        // ---------- UI ----------
-        RectTransform RT(GameObject go) => go.GetComponent<RectTransform>();
-        void Place(GameObject go, Transform parent, float x, float y, float w, float h)
-        {
-            go.transform.SetParent(parent, false);
-            var rt = RT(go);
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = new Vector2(w, h);
-            rt.anchoredPosition = new Vector2(x, y);
-        }
-        Text MakeLabel(Transform p, float x, float y, float w, float h, string s, int size, TextAnchor a, Color? c = null)
-        {
-            var go = new GameObject("L"); var t = go.AddComponent<Text>(); Place(go, p, x, y, w, h);
-            t.font = _font; t.fontSize = size; t.alignment = a; t.color = c ?? Color.white; t.text = s;
-            t.horizontalOverflow = HorizontalWrapMode.Overflow; t.verticalOverflow = VerticalWrapMode.Overflow;
-            return t;
-        }
-        Image MakeImage(Transform p, float x, float y, float w, float h, Color col)
-        {
-            var go = new GameObject("I"); var img = go.AddComponent<Image>(); Place(go, p, x, y, w, h); img.color = col; return img;
-        }
-        void MakeButton(Transform p, float x, float y, float w, float h, string label, Action onClick, Color? col = null, int fontSize = 15)
-        {
-            var go = new GameObject("B"); var img = go.AddComponent<Image>(); Place(go, p, x, y, w, h);
-            img.color = col ?? CBtn;
-            var btn = go.AddComponent<Button>();
-            btn.onClick.AddListener(DelegateSupport.ConvertDelegate<UnityAction>((Action)onClick));
-            MakeLabel(go.transform, 0f, 0f, w, h, label, fontSize, TextAnchor.MiddleCenter);
-        }
-
-        // Load a scenario's preview.png into a Sprite (best-effort).
-        Sprite LoadPreview(ScenarioSource s)
-        {
-            try
-            {
-                string path = null;
-                try { path = s.PreviewPath; } catch { }
-                if (string.IsNullOrEmpty(path) || !File.Exists(path))
-                {
-                    string folder = null; try { folder = s.Folder; } catch { }
-                    if (!string.IsNullOrEmpty(folder)) path = Path.Combine(folder, "preview.png");
-                }
-                if (string.IsNullOrEmpty(path) || !File.Exists(path)) return null;
-                byte[] bytes = File.ReadAllBytes(path);
-                var tex = new Texture2D(2, 2);
-                ImageConversion.LoadImage(tex, (Il2CppStructArray<byte>)bytes);
-                return Sprite.Create(tex, new Rect(0f, 0f, tex.width, tex.height), new Vector2(0.5f, 0.5f));
-            }
-            catch (Exception e) { MelonLogger.Warning("[LocalSkirmish] preview load: " + e.Message); return null; }
-        }
-
-        void SetPreview()
-        {
-            if (_previewImg == null) return;
-            Sprite sp = (_mapIdx >= 0 && _mapIdx < _maps.Count) ? LoadPreview(_maps[_mapIdx]) : null;
-            _previewImg.sprite = sp;
-            _previewImg.preserveAspect = true;
-            _previewImg.color = sp != null ? Color.white : new Color(0.06f, 0.07f, 0.09f, 1f);
-        }
-
-        void BuildUI()
-        {
-            DestroyUI();
-            if (_font == null)
-            {
-                try { _font = Font.CreateDynamicFontFromOSFont("Arial", 16); } catch { }
-                if (_font == null) { try { _font = Font.CreateDynamicFontFromOSFont("Segoe UI", 16); } catch { } }
-            }
-            _optLabels.Clear();
-
-            _root = new GameObject("BASkirmishSetup");
-            UnityEngine.Object.DontDestroyOnLoad(_root);
-            var canvas = _root.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay; canvas.sortingOrder = 30000;
-            _root.AddComponent<GraphicRaycaster>();
-            MakeImage(_root.transform, 0f, 0f, 5000f, 3000f, CDim); // dim backdrop
-
-            const float W = 860f;
-            const float rowH = 34f;
-            const float headH = 52f;
-            int optRows = Math.Min(_opts.Count, 6);
-            int rows = 2 + (_aiSlots.Count > 0 ? 2 : 0) + (_hasDiff ? 1 : 0) + optRows;
-            float bodyH = rows * rowH;
-            float h = headH + 24f + bodyH + 64f + 30f;   // header + pad + rows + buttons + status
-            if (h < 380f) h = 380f;                       // room for preview
-
-            // frame + panel
-            MakeImage(_root.transform, 0f, 0f, W + 4f, h + 4f, CFrame);
-            var panel = MakeImage(_root.transform, 0f, 0f, W, h, CPanel);
-            var pt = panel.transform;
-            float top = h / 2f;
-
-            // header bar
-            MakeImage(pt, 0f, top - headH / 2f, W, headH, CHeader);
-            MakeLabel(pt, 0f, top - headH / 2f, W - 40f, 34f, "Local AI Skirmish", 24, TextAnchor.MiddleCenter);
-
-            // layout: controls on the left column, preview on the right
-            float colX = -W / 2f + 30f;      // left edge of controls
-            float labX = colX + 90f;         // label center
-            float ltX = colX + 175f;         // "<" center
-            float valX = colX + 210f;        // value left
-            float rtX = colX + 470f;         // ">" center
-            float y = top - headH - 22f;
-
-            void Row(string name, Color nameCol, string val, Action dec, Action inc, Action<Text> keep)
-            {
-                MakeImage(pt, colX + 250f, y, 500f, rowH - 4f, CRow);
-                MakeLabel(pt, labX, y, 170f, 26f, name, 15, TextAnchor.MiddleLeft, nameCol);
-                MakeButton(pt, ltX, y, 30f, 26f, "<", dec);
-                var vl = MakeLabel(pt, valX + 117.5f, y, 235f, 26f, val, 15, TextAnchor.MiddleLeft, CVal);
-                vl.horizontalOverflow = HorizontalWrapMode.Wrap;
-                vl.resizeTextForBestFit = true; vl.resizeTextMinSize = 10; vl.resizeTextMaxSize = 15;
-                MakeButton(pt, rtX, y, 30f, 26f, ">", inc);
-                keep?.Invoke(vl);
-                y -= rowH;
-            }
-
-            Row("Map", CLabel, "-", () => CycleMap(-1), () => CycleMap(1), t => _mapLabel = t);
-            Row("Player deck", CLabel, "-", () => CycleDeck(-1), () => CycleDeck(1), t => _deckLabel = t);
-            if (_aiSlots.Count > 0)
-            {
-                Row("AI player", CLabel, "-", () => CycleAiPlayer(-1), () => CycleAiPlayer(1), t => _aiPlayerLabel = t);
-                Row("AI deck", CLabel, AiDeckText(), () => CycleAiDeck(-1), () => CycleAiDeck(1), t => _aiDeckLabel = t);
-            }
-            if (_hasDiff)
-                Row("Difficulty", new Color(1f, 0.82f, 0.55f), _diffNames[_diff], () => CycleDiff(-1), () => CycleDiff(1), t => _diffLabel = t);
-            for (int i = 0; i < optRows; i++)
-            {
-                var od = _opts[i];
-                Row(od.Label, new Color(0.85f, 0.85f, 0.7f), OptValueText(od), () => CycleOpt(od, -1), () => CycleOpt(od, 1), t => _optLabels.Add(t));
-            }
-
-            // preview (right side)
-            float pvW = 300f, pvH = 170f;
-            float pvX = W / 2f - pvW / 2f - 28f;
-            float pvY = top - headH - 22f - pvH / 2f + 13f;
-            MakeImage(pt, pvX, pvY, pvW + 4f, pvH + 4f, CFrame);
-            _previewImg = MakeImage(pt, pvX, pvY, pvW, pvH, new Color(0.06f, 0.07f, 0.09f, 1f));
-            _previewCaption = MakeLabel(pt, pvX, pvY - pvH / 2f - 16f, pvW + 20f, 22f, "", 13, TextAnchor.MiddleCenter, new Color(0.8f, 0.85f, 0.95f));
-
-            // buttons
-            float by = -top + 74f;
-            MakeButton(pt, colX + 110f, by, 200f, 40f, "Start Battle", StartBattle, CStart, 17);
-            MakeButton(pt, colX + 330f, by, 150f, 40f, "Random", RandomMap, CBtn, 15);
-            MakeButton(pt, W / 2f - 90f, by, 120f, 40f, "Cancel", CloseSetup, CCancel, 15);
-
-            _statusLabel = MakeLabel(pt, 0f, -top + 26f, W - 40f, 24f, "", 12, TextAnchor.MiddleCenter, new Color(0.72f, 0.75f, 0.8f));
-
-            SetPreview();
-            UpdateLabels();
-        }
-
-        void DestroyUI()
-        {
-            if (_root != null) { try { UnityEngine.Object.Destroy(_root); } catch { } _root = null; }
-            _mapLabel = _deckLabel = _aiPlayerLabel = _aiDeckLabel = _statusLabel = _diffLabel = _previewCaption = null; _previewImg = null; _optLabels.Clear();
-        }
-
-        void UpdateLabels()
-        {
-            if (_mapLabel != null) _mapLabel.text = _maps.Count > 0 ? $"{_mapIdx + 1}/{_maps.Count}  {_mapNames[_mapIdx]}" : "(none)";
-            if (_previewCaption != null) _previewCaption.text = _maps.Count > 0 ? _mapNames[_mapIdx] : "";
-            if (_deckLabel != null) _deckLabel.text = _decks.Count > 0 ? $"{_deckIdx + 1}/{_decks.Count}  {_deckNames[_deckIdx]}" : "(no valid decks)";
-            if (_aiPlayerLabel != null) _aiPlayerLabel.text = _aiSlots.Count > 0
-                ? $"{_aiSlotIdx + 1}/{_aiSlots.Count}  {_aiSlots[_aiSlotIdx].Name}" : "(no AI players)";
-            if (_aiDeckLabel != null) _aiDeckLabel.text = AiDeckText();
-            if (_diffLabel != null) _diffLabel.text = _diffNames[Math.Max(0, Math.Min(3, _diff))];
-            for (int i = 0; i < _optLabels.Count && i < _opts.Count; i++)
-                if (_optLabels[i] != null) _optLabels[i].text = OptValueText(_opts[i]);
-            if (_statusLabel != null)
-            {
-                string extra = _opts.Count > 0 ? $"{_opts.Count} map option(s)." : "This map has no extra options.";
-                int customCount = _aiSlots.FindAll(s => s.DeckIndex >= 0).Count;
-                string hint = IsSkirmishMap() ? $"AI decks saved per player ({customCount}/{_aiSlots.Count} custom)." : "Set difficulty & deck, then Start.";
-                _statusLabel.text = $"Map {_mapIdx + 1}/{_maps.Count}.  {extra}  {hint}";
-            }
-        }
-
-        // ---------- actions ----------
-        public void OpenSetup()
-        {
-            if (_root != null) return;
-            ClearBattleAiDecks();
-            BuildMapList(); _mapIdx = 0; RefreshDecks(); RefreshOptions(); BuildUI();
-            MelonLogger.Msg($"[LocalSkirmish] Setup opened ({_maps.Count} maps).");
-        }
-        void CloseSetup() { DestroyUI(); }
-        void CycleMap(int dir)
-        {
-            if (_maps.Count == 0) return;
-            _mapIdx = (_mapIdx + dir + _maps.Count) % _maps.Count;
-            RefreshDecks(); RefreshOptions(); BuildUI();
-        }
         void CycleDeck(int dir)
         { if (_decks.Count == 0) return; _deckIdx = (_deckIdx + dir + _decks.Count) % _decks.Count; UpdateLabels(); }
         void CycleAiDeck(int dir)
@@ -796,12 +606,6 @@ namespace BALocalSkirmish
         }
         void CycleDiff(int dir)
         { _diff += dir; if (_diff < 1) _diff = 3; if (_diff > 3) _diff = 1; UpdateLabels(); }
-        void RandomMap()
-        {
-            if (_maps.Count == 0) return; _mapIdx = _rng.Next(_maps.Count);
-            RefreshDecks(); RefreshOptions(); BuildUI();
-        }
-
         void StartBattle()
         {
             try
@@ -817,6 +621,7 @@ namespace BALocalSkirmish
                 }
                 var st = ISceneTransition.Instance;
                 if (st == null) { if (_statusLabel != null) _statusLabel.text = "Scene transition unavailable."; return; }
+                SaveCurrent();
                 PrepareDecks(scenario, deck);
 
                 // difficulty (scenario scripts read CampaignService.Difficulty)
@@ -845,6 +650,8 @@ namespace BALocalSkirmish
             catch (Exception e)
             {
                 ClearBattleAiDecks();
+                _applyFrames = 0; PendingOptions.Clear();
+                if (_root == null) BuildUI();
                 if (_statusLabel != null) _statusLabel.text = e.Message;
                 MelonLogger.Error("[LocalSkirmish] StartBattle: " + e);
             }
