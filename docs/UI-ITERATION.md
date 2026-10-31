@@ -1,7 +1,44 @@
-# Local lobby UI iteration — 2.7.0 local fork
+# Local lobby UI iteration — 2.8.0 local fork
 
 Base: BovineOverlord/broken-arrow-local-skirmish at `77ba5ae30bf4705b1119ae39a0a829708ede6b6b`.
-Branch: `ui/clear-local-lobby`. The version number identifies this fork, not an upstream release.
+Branch: `ui/team-roster-previews`, based on the previous `ui/clear-local-lobby` iteration.
+The version number identifies this fork, not an upstream release.
+
+## 2.8.0: visible teams and working map images
+
+- Replaced the separate AI-slot chooser with two visible team columns. Your human row and every
+  configurable AI row have their own deck button. Callbacks bind to that row's AI object rather
+  than a global selected-slot index. Non-configurable metadata rows remain visible/read-only.
+- Built-in maps show five rows on each side (you + four allies, five opponents). Larger rosters
+  page rows; additional sides remain distinct and page teams instead of being relabelled enemies.
+- Fixed the actual preview source: built-in skirmish folders such as Airbase contain no loose
+  preview image. The native menu uses `GameConfig.Instance.MapCardsConfig.Data`, whose
+  `MapCardData` exposes `SceneName`, `MapPreview` and `Image`. Exact scene matching selects
+  `MapPreview`, with `Image` as fallback; `ScenarioDataManager._mapCardsConfig` is a second source.
+- Explicit/scenario PNG/JPG/JPEG files take precedence. Native fallback is labelled **Base map
+  preview** because a scenario may use only part of that map. No assets are redistributed.
+- Shared native sprites are borrowed and never destroyed. Only images created from loose files
+  are released by this mod. Missing native assets retry briefly as the menu finishes loading.
+- Existing saved setups/presets keep the same schema and identifiers.
+
+55 lobby/projection/row-binding checks, 24 roster checks and 23 preview checks pass, alongside
+317 upstream deck/spawn checks and the Harmony registration fixture. Native APIs compile against
+the local assemblies; live game visual testing is still required.
+
+### Native lobby comparison
+
+The [official manual, page 15](https://ftp.matrixgames.com/pub/BrokenArrow/BrokenArrowManualEBOOK.pdf#page=15)
+shows two force columns, five rows each, per-AI preset selection, human deck, portraits/flags and
+add/lock controls. It is a launch-era screenshot; its old requirement for human teammates is obsolete.
+The [developer's Allied Command update](https://www6.slitherine.com/news/broken-arrow-allied-command-update-out-now)
+(16 December 2025) confirms allied bots, any-side bot slots, difficulty/specialization controls,
+private/autofilled skirmish lobbies and time-of-day selection.
+
+Local v1.2.0 metadata confirms `TeamPanelView` has two team containers and `LobbySlotView` exposes
+add/kick/lock handlers. Native `TeamPanelBotSlot` selects an `AiProfilePreset` (country + specializations),
+not an arbitrary custom `IDeckDataModel`. Those UI actions reference network lobby/room services;
+opening the online menu offline is not automatically supported. This iteration mirrors its
+organization while retaining the existing local launch path, without fake add/kick/lock controls.
 
 ## Findings and priorities
 
@@ -11,7 +48,7 @@ and has no persistence. It already loads map previews.
 
 Implemented priorities:
 
-1. Direct selection: searchable, paged lists for maps, decks, AI slots and enum options; filters
+1. Direct selection: searchable, paged lists for maps, decks and enum options; visible AI rows; filters
    for dedicated skirmish, PvE/co-op, campaign/missions and all local scenarios. PvP stays excluded.
 2. Clear data: readable names, category, team relationship, stable slot UID, customized-deck count,
    and the difference between metadata slots and actual active spawns.
@@ -26,7 +63,7 @@ The existing launcher does not safely expose these as generic controls. Scripts 
 ## API evidence from the installed generated assemblies
 
 - `ScenariosService._scenarios`, `ScenarioSource.MetaFile`, `Folder`, `Name`, `PreviewPath`:
-  scenario enumeration, identity and existing previews.
+  scenario enumeration, identity and file previews; native map-card sprites cover built-in skirmish.
 - `ScenarioMetaFile.Teams`: team side/name and slot bot ID/name/flag. The upstream loader assumes
   the first Alpha slot is human. The UI describes this existing assumption, without a team editor.
 - `DeckService.GetAvailableDecksForScenario(scenario, 0)`: original deck-list API preserved.
@@ -79,8 +116,12 @@ files were not changed to build or package this work.
 
 - Open Skirmish at 1280×720 and 1920×1080: check scaling, text fit, input focus, clicks and reopening.
 - Browse/search every category, empty results and pages. Random map must stay inside its category.
-- On Airbase, verify readable names, allied/opposing slot UIDs, “Time of day / Random” and
-  “Map size / Automatic”. Assign clearly different decks to two AI slots.
+- On Airbase, verify your human row and four allies appear opposite five AI, each with its own deck
+  button. Assign clearly different decks across both columns and confirm other rows stay unchanged.
+  Check “Time of day / Random”, “Map size / Automatic” and the native map preview image.
+- Switch maps repeatedly, including scenarios with their own preview files. Images must match the
+  scene and persist after reopening. Missing images must not prevent launching. Check a scenario
+  with additional/read-only rows or sides if installed; every actual row must remain accessible.
 - Try valid/invalid timer and income steps, and cancel without applying. On a scenario with more
   than four public options, verify every page and retain edits between pages.
 - Save/alter/load a preset; switch maps and return; close/restart and verify settings. Restore

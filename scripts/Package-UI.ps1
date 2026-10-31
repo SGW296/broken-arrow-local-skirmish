@@ -1,22 +1,25 @@
-param([string]$OutputDir = (Join-Path $PSScriptRoot '../../outputs/Local-Skirmish-UI-2.7.0'))
+param([string]$OutputDir = (Join-Path $PSScriptRoot '../../outputs/Local-Skirmish-UI-2.8.0'))
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $build = Join-Path $repo 'src/bin/Release/BALocalSkirmish.dll'
 $original = Join-Path $repo 'dist/BALocalSkirmish.dll'
+$previous = Join-Path $repo '../outputs/Local-Skirmish-UI-2.7.0/BALocalSkirmish.dll'
 if (-not (Test-Path -LiteralPath $build)) { throw 'Build the Release DLL first; see docs/MODDING.md.' }
+if (-not (Test-Path -LiteralPath $previous)) { throw 'The preserved 2.7.0 package is required to include the previous UI rollback DLL.' }
 $packagePath = [IO.Path]::GetFullPath($OutputDir)
-New-Item -ItemType Directory -Path $packagePath,(Join-Path $packagePath 'rollback') -Force | Out-Null
+New-Item -ItemType Directory -Path $packagePath,(Join-Path $packagePath 'rollback'),(Join-Path $packagePath 'upstream-original') -Force | Out-Null
 Copy-Item -LiteralPath $build -Destination (Join-Path $packagePath 'BALocalSkirmish.dll')
-Copy-Item -LiteralPath $original -Destination (Join-Path $packagePath 'rollback/BALocalSkirmish.dll')
+Copy-Item -LiteralPath $previous -Destination (Join-Path $packagePath 'rollback/BALocalSkirmish.dll')
+Copy-Item -LiteralPath $original -Destination (Join-Path $packagePath 'upstream-original/BALocalSkirmish.dll')
 Copy-Item -LiteralPath (Join-Path $repo 'docs/INSTALL-UI.md') -Destination (Join-Path $packagePath 'README.md')
 Copy-Item -LiteralPath (Join-Path $repo 'docs/UI-ITERATION.md') -Destination $packagePath
 Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $packagePath
 $commit = (& git -C $repo rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0) { throw 'Could not record the source commit.' }
 $manifest = [ordered]@{
-    Version = '2.7.0-local-ui'
+    Version = '2.8.0-local-ui'
     SourceCommit = $commit
-    SourceBranch = 'ui/clear-local-lobby'
+    SourceBranch = 'ui/team-roster-previews'
     UpstreamCommit = '77ba5ae30bf4705b1119ae39a0a829708ede6b6b'
     Target = 'Broken Arrow v1.2.0, existing MelonLoader, net6.0/x64'
     InGameTested = $false

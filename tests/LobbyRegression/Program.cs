@@ -7,9 +7,12 @@ namespace BALocalSkirmish
     // Managed stand-ins exercise the production persistence/selection methods. Unity UI
     // and native game dispatch are deliberately outside this fixture's claims.
     enum ScenarioType { Skirmish, MultiplayerPVE, Singleplayer }
-    class ScenarioSource { public string Folder, Name; public ScenarioType Type; }
+    class ScenarioSource { public string Folder, Name; public ScenarioType Type; public ScenarioMeta MetaFile; }
+    class ScenarioMeta { public List<ScenarioTeam> Teams = new List<ScenarioTeam>(); }
+    class ScenarioTeam { public int TeamSide; public string TeamName; public List<ScenarioSlot> Slots = new List<ScenarioSlot>(); }
+    class ScenarioSlot { public int BotId; public bool IsBot; public string PlayerName; }
     class IDeckDataModel { public int CountryID, Spec1ID, Spec2ID; public string FileName, Name; }
-    class AiSlot { public int PlayerUid, DeckIndex = -1; }
+    class AiSlot { public int PlayerUid, TeamSide, DeckIndex = -1; public string Name; }
     static class MelonEnvironment { public static string UserDataDirectory; }
     static class MelonLogger { public static void Warning(string value) { } }
 
@@ -18,13 +21,15 @@ namespace BALocalSkirmish
         LobbySettings _settings;
         string _settingsPath, _notice = "", _presetName = "My setup";
         bool _settingsWritable = true, _saveFailed, _hasDiff = true;
-        int _filter, _optionPage, _mapIdx, _deckIdx, _diff = 3;
+        int _filter, _optionPage, _teamPage, _rosterPage, _mapIdx, _deckIdx, _diff = 3;
         readonly List<ScenarioSource> _maps = new List<ScenarioSource>();
         readonly List<IDeckDataModel> _decks = new List<IDeckDataModel>();
+        readonly List<string> _deckNames = new List<string>();
         readonly List<AiSlot> _aiSlots = new List<AiSlot>();
         readonly List<OptDef> _opts = new List<OptDef>();
         readonly Dictionary<int, int> _optVals = new Dictionary<int, int>();
         static ScenarioType TypeOf(ScenarioSource value) => value.Type;
+        bool IsSkirmishMap() => _mapIdx >= 0 && _mapIdx < _maps.Count && TypeOf(_maps[_mapIdx]) == ScenarioType.Skirmish;
         sealed class Choice { public int Value; public Choice(int value, string label, string detail) { Value = value; } }
         List<Choice> _choices;
         Action<int> _picked;
@@ -67,7 +72,35 @@ namespace BALocalSkirmish
             var human = new IDeckDataModel { FileName = "human.deck", Name = "Player", CountryID = 1 };
             var ai = new IDeckDataModel { FileName = "armor.deck", Name = "Armor", CountryID = 2 };
             c._decks.AddRange(new[] { human, ai });
-            c._aiSlots.AddRange(new[] { new AiSlot { PlayerUid = 3, DeckIndex = 1 }, new AiSlot { PlayerUid = 5 } });
+            c._deckNames.AddRange(new[] { "Player", "Armor" });
+            c._aiSlots.AddRange(new[] { new AiSlot { PlayerUid = 3, DeckIndex = 1, Name = "Ally" }, new AiSlot { PlayerUid = 5, TeamSide = 1, Name = "Opponent" } });
+            a.MetaFile = new ScenarioMeta();
+            var alpha = new ScenarioTeam { TeamSide = 0, TeamName = "Alpha" };
+            alpha.Slots.AddRange(new[] {
+                new ScenarioSlot { BotId = 2, IsBot = true, PlayerName = "Alpha Player 1" },
+                new ScenarioSlot { BotId = 3, IsBot = false, PlayerName = "Read-only observer" },
+                new ScenarioSlot { BotId = 3, IsBot = true, PlayerName = "Ally" }
+            });
+            var bravo = new ScenarioTeam { TeamSide = 1, TeamName = "Bravo" };
+            bravo.Slots.Add(new ScenarioSlot { BotId = 5, IsBot = true, PlayerName = "Opponent" });
+            a.MetaFile.Teams.AddRange(new[] { bravo, alpha });
+            var roster = c.ReadRoster();
+            Check(roster.Count == 2 && roster[0].TeamSide == 0 && roster[1].TeamSide == 1, "Metadata projection mixed team columns");
+            Check(roster[0].Entries[0].IsHuman && roster[0].Entries[0].PlayerUid == 2, "Metadata projection selected the wrong human");
+            Check(roster[0].Entries[1].AiIndex == -1 && roster[0].Entries[2].AiIndex == 0,
+                "Read-only duplicate UID hid the later configurable AI row");
+            Check(roster[1].Entries[0].AiIndex == 1, "Opponent row deck control bound to the wrong slot");
+            c.PickDeckForSlot(1);
+            Check(c._choices.Count == 3 && c._choices[0].Value == -1, "AI row must offer same-as-player plus available decks");
+            c._aiSlots.Reverse(); c._picked(0);
+            Check(c._aiSlots.Find(s => s.PlayerUid == 5).DeckIndex == 0 && c._aiSlots.Find(s => s.PlayerUid == 3).DeckIndex == 1,
+                "Deck picker rebound to another slot when list order changed");
+            c._aiSlots.Reverse(); c._aiSlots[1].DeckIndex = -1;
+            c.PickDeckForSlot(-1); Check(c._choices.Count == 2, "Human row must not offer same-as-player");
+            c._picked(1); Check(c._deckIdx == 1 && c._aiSlots[1].DeckIndex == -1, "Human row changed an AI deck"); c._deckIdx = 0;
+            c.PickDeckForSlot(1); var removed = c._aiSlots[1]; c._aiSlots.Remove(removed); c._picked(1);
+            Check(removed.DeckIndex == -1 && c._deckIdx == 0, "Stale AI row modified a removed slot or the human deck");
+            c._aiSlots.Add(removed);
             var daytime = new OptDef { Uid = 221, IsEnum = true, Default = 3, EnumVals = new List<int> { 0, 1, 2, 3 } };
             var timer = new OptDef { Uid = 226, Min = 30, Max = 60, Step = 3, Default = 30 };
             var income = new OptDef { Uid = 227, Min = 150, Max = 600, Step = 25, Default = 300 };
@@ -102,7 +135,7 @@ namespace BALocalSkirmish
             Check(c._settings.Presets.Count == 1, "Same-named preset did not replace scoped preset");
             c._presetName = "  "; c.SavePreset(); Check(c._settings.Presets.Count == 1, "Empty preset accepted");
             c.SelectMap(1);
-            Check(c._optionPage == 0, "Map change did not reset option page");
+            Check(c._optionPage == 0 && c._teamPage == 0 && c._rosterPage == 0, "Map change did not reset roster/option pages");
             Check(c._deckIdx == 0 && c._diff == 3 && c._optVals[226] == 30, "New map inherited old settings");
             c.LoadPreset(); Check(c._choices.Count == 0, "Preset leaked across scenarios");
             c._presetName = "Armor practice"; c.SavePreset();

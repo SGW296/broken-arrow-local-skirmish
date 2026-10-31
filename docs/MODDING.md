@@ -29,6 +29,8 @@ Checks (PowerShell, .NET SDK on PATH):
 
 ```powershell
 ./tests/Test-Lobby.ps1
+./tests/Test-TeamRoster.ps1
+./tests/Test-Preview.ps1
 ./tests/Test-DeckSelection.ps1
 ./tests/Test-PatchRegistration.ps1 -GameDir 'C:\Games\Broken Arrow'
 ```

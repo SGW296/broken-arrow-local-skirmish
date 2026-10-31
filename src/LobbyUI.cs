@@ -21,10 +21,10 @@ namespace BALocalSkirmish
         bool _settingsWritable = true;
         bool _saveFailed;
         int _filter, _optionPage;
-        Text _teamSummary, _slotDetail;
+        Text _teamSummary;
         Button _startButton;
-        Sprite _previewSprite;
-        Texture2D _previewTexture;
+        MapPreviewResult _previewResult;
+        int _previewRetryFrames;
         GameObject _picker, _pickerRows;
         Text _pickerCount;
         Button _pickerPrev, _pickerNext;
@@ -155,7 +155,7 @@ namespace BALocalSkirmish
         {
             if (index < 0 || index >= _maps.Count) return;
             SaveCurrent();
-            _mapIdx = index; _optionPage = 0; _notice = "";
+            _mapIdx = index; _optionPage = 0; _teamPage = _rosterPage = 0; _notice = "";
             RefreshDecks(); RefreshOptions();
             if (_settings.Scenarios.TryGetValue(ScenarioKey(_maps[index]), out var saved)) RestoreSetup(saved);
             BuildUI();
@@ -190,7 +190,7 @@ namespace BALocalSkirmish
                 var available = FilteredMaps();
                 _mapIdx = available.Count > 0 ? available[0] : (_maps.Count > 0 ? 0 : -1);
             }
-            _optionPage = 0;
+            _optionPage = 0; _teamPage = _rosterPage = 0;
             RefreshDecks(); RefreshOptions();
             if (_mapIdx >= 0 && _settings.Scenarios.TryGetValue(ScenarioKey(_maps[_mapIdx]), out var saved)) RestoreSetup(saved);
             BuildUI();
@@ -235,32 +235,25 @@ namespace BALocalSkirmish
             OpenPicker("Choose a scenario — " + FilterNames[_filter], choices, SelectMap);
         }
 
-        void PickDeck(bool ai)
+        void PickDeckForSlot(int aiIndex)
         {
-            if (ai && (_aiSlotIdx < 0 || _aiSlotIdx >= _aiSlots.Count)) return;
+            if (aiIndex < -1 || aiIndex >= _aiSlots.Count) return;
+            // Bind the button to this slot object, never to a shared 'currently selected' index.
+            var slot = aiIndex >= 0 ? _aiSlots[aiIndex] : null;
             var choices = new List<Choice>();
-            if (ai) choices.Add(new Choice(-1, "Same as your deck", "Follows your deck selection for this AI slot."));
+            if (slot != null) choices.Add(new Choice(-1, "Same as your deck", "Follows your deck selection for this AI slot."));
             for (int i = 0; i < _decks.Count; i++)
                 choices.Add(new Choice(i, LobbyText.DeckName(_deckNames[i]), _deckNames[i]));
-            OpenPicker(ai ? "Deck for " + _aiSlots[_aiSlotIdx].Name : "Your deck — available for this scenario", choices, value =>
+            OpenPicker(slot != null ? "Deck for " + slot.Name : "Your deck — available for this scenario", choices, value =>
             {
-                if (ai) _aiSlots[_aiSlotIdx].DeckIndex = value; else _deckIdx = value;
+                if (slot != null)
+                {
+                    if (!_aiSlots.Contains(slot)) return;
+                    slot.DeckIndex = value;
+                }
+                else _deckIdx = value;
                 UpdateLabels();
             });
-        }
-
-        string SlotText(AiSlot slot)
-        {
-            string role = slot.TeamSide == 0 ? "Ally" : slot.TeamSide == 1 ? "Opponent" : "Scenario team " + slot.TeamSide;
-            return role + " · " + slot.Name;
-        }
-
-        void PickAiSlot()
-        {
-            var choices = new List<Choice>();
-            for (int i = 0; i < _aiSlots.Count; i++)
-                choices.Add(new Choice(i, SlotText(_aiSlots[i]), _aiSlots[i].TeamName + " · Slot UID " + _aiSlots[i].PlayerUid));
-            OpenPicker("Configure an existing AI slot", choices, value => { _aiSlotIdx = value; UpdateLabels(); });
         }
 
         void PickOption(OptDef option)
@@ -277,7 +270,7 @@ namespace BALocalSkirmish
 
         void ResetDefaults()
         {
-            RefreshDecks(); RefreshOptions(); _optionPage = 0;
+            RefreshDecks(); RefreshOptions(); _optionPage = 0; _teamPage = _rosterPage = 0;
             _notice = "Scenario defaults restored, including decks and difficulty.";
             BuildUI();
         }
@@ -384,112 +377,51 @@ namespace BALocalSkirmish
             MakeImage(panel, 0, 344, 1040, 60, CHeader);
             MakeLabel(panel, 0, 344, 980, 40, "LOCAL AI SKIRMISH", 25, TextAnchor.MiddleCenter);
 
-            void Heading(string title, float y) { MakeLabel(panel, -180, y, 628, 26, title, 15, TextAnchor.MiddleLeft, CLabel); }
-            Text Row(string name, float y, Action choose)
-            {
-                MakeLabel(panel, -409, y, 170, 32, name, 15, TextAnchor.MiddleLeft, CLabel);
-                var button = MakeButton(panel, -100, y, 432, 32, "", choose);
-                MakeLabel(button.transform, 195, 0, 22, 26, "▾", 16, TextAnchor.MiddleCenter);
-                var label = MakeLabel(button.transform, -9, 0, 394, 30, "", 15, TextAnchor.MiddleLeft);
-                label.resizeTextForBestFit = true; label.resizeTextMinSize = 11; label.resizeTextMaxSize = 15;
-                return label;
-            }
-            Row("Scenario category", 290, PickFilter).text = FilterNames[_filter];
-            _mapLabel = Row("Map / scenario", 250, PickMap);
-            MakeLabel(panel, -180, 219, 628, 25, _mapIdx >= 0 ? Category(_maps[_mapIdx]) + " · " + NameOf(_maps[_mapIdx]) : "No local scenarios found", 12, TextAnchor.MiddleLeft);
-            Heading("YOUR ARMY", 186);
-            _deckLabel = Row("Your deck", 152, () => PickDeck(false));
-            Heading("SCENARIO TEAMS & AI", 116);
-            if (_aiSlots.Count > 0)
-            {
-                _aiPlayerLabel = Row("Configure AI slot", 82, PickAiSlot);
-                _aiDeckLabel = Row("Deck for this slot", 44, () => PickDeck(true));
-                _slotDetail = MakeLabel(panel, -180, 12, 628, 26, "", 12, TextAnchor.MiddleLeft);
-            }
-            else MakeLabel(panel, -180, 61, 628, 60, "This scenario controls its own players and AI decks.\nIndividual AI deck selection is available on dedicated skirmish maps.", 14, TextAnchor.MiddleLeft);
-            Heading("SCENARIO SETTINGS", -26);
-            if (_hasDiff) _diffLabel = Row("Difficulty", -62, () =>
-            {
-                OpenPicker("Scenario difficulty", new List<Choice> { new Choice(1, "Easy"), new Choice(2, "Medium"), new Choice(3, "Hard") }, value => { _diff = value; UpdateLabels(); });
-            });
-            else MakeLabel(panel, -180, -62, 628, 32, "Difficulty is controlled by this scenario.", 14, TextAnchor.MiddleLeft);
-            int first = _optionPage * 4;
-            for (int i = first; i < Math.Min(first + 4, _opts.Count); i++)
-            {
-                var option = _opts[i];
-                _optLabels.Add(Row(option.Label, -102 - (i - first) * 36, () => PickOption(option)));
-            }
-            if (_opts.Count == 0) MakeLabel(panel, -180, -122, 628, 45, "This scenario exposes no extra match settings.", 14, TextAnchor.MiddleLeft);
-            int pages = Math.Max(1, (_opts.Count + 3) / 4);
-            MakeLabel(panel, -180, -251, 400, 28, $"Scenario options — page {_optionPage + 1} / {pages}", 12, TextAnchor.MiddleCenter, CLabel);
-            MakeButton(panel, -420, -251, 72, 28, "Previous", () => { _optionPage--; BuildUI(); }, size: 12).interactable = _optionPage > 0;
-            MakeButton(panel, 60, -251, 72, 28, "Next", () => { _optionPage++; BuildUI(); }, size: 12).interactable = _optionPage + 1 < pages;
-
-            _previewImg = MakeImage(panel, 340, 223, 300, 170, CRow);
-            _previewCaption = MakeLabel(panel, 340, 120, 300, 40, "", 16, TextAnchor.MiddleCenter, CLabel);
-            _teamSummary = MakeLabel(panel, 340, 42, 300, 104, "", 14, TextAnchor.UpperLeft);
-            MakeLabel(panel, 340, -80, 300, 126,
-                "Slots and teams come from the scenario; selecting a slot does not add an AI.\nDifficulty and options depend on its scripts. AI deck spawning retains upstream limitations.", 13, TextAnchor.UpperLeft, CLabel);
-            MakeLabel(panel, 340, -161, 300, 25, "NAMED PRESET — THIS SCENARIO", 12, TextAnchor.MiddleLeft, CLabel);
-            MakeInput(panel, 340, -190, 300, _presetName, "Preset name", value => _presetName = value);
-            MakeButton(panel, 262, -229, 144, 30, "Save preset", SavePreset).interactable = _settingsWritable && _mapIdx >= 0;
-            MakeButton(panel, 418, -229, 144, 30, "Load preset", LoadPreset).interactable = _mapIdx >= 0;
-            MakeButton(panel, 340, -267, 300, 30, "Restore scenario defaults", ResetDefaults).interactable = _mapIdx >= 0;
-
-            _startButton = MakeButton(panel, -370, -306, 248, 40, "Start battle", StartBattle, CStart, 18);
-            MakeButton(panel, -90, -306, 248, 40, "Random map in category", RandomMap).interactable = FilteredMaps().Count > 0;
-            MakeButton(panel, 340, -318, 300, 38, "Close & remember", CloseSetup, CCancel);
-            _statusLabel = MakeLabel(panel, -180, -350, 628, 36, "", 12, TextAnchor.MiddleLeft, CLabel);
+            BuildLobbyBody(panel);
+            _previewRetryFrames = 300;
             SetPreview(); UpdateLabels();
         }
 
         void SetPreview()
         {
+            _previewResult?.Release(); _previewResult = null;
             if (_mapIdx < 0 || _mapIdx >= _maps.Count) return;
-            try
-            {
-                var scenario = _maps[_mapIdx]; string path = scenario.PreviewPath;
-                if (string.IsNullOrEmpty(path) || !File.Exists(path)) path = Path.Combine(scenario.Folder, "preview.png");
-                if (!File.Exists(path)) { _previewCaption.text = "No map preview available"; return; }
-                _previewTexture = new Texture2D(2, 2);
-                if (!ImageConversion.LoadImage(_previewTexture, (Il2CppStructArray<byte>)File.ReadAllBytes(path)))
-                { _previewCaption.text = "No map preview available"; return; }
-                _previewSprite = Sprite.Create(_previewTexture, new Rect(0, 0, _previewTexture.width, _previewTexture.height), new Vector2(0.5f, 0.5f));
-                _previewImg.sprite = _previewSprite; _previewImg.color = Color.white; _previewImg.preserveAspect = true;
-                _previewCaption.text = _mapNames[_mapIdx];
-            }
-            catch (Exception e)
+            _previewResult = MapPreviewResolver.Resolve(_maps[_mapIdx]);
+            if (_previewResult == null)
             {
                 _previewCaption.text = "No map preview available";
-                MelonLogger.Warning("[LocalSkirmish] Preview: " + e.Message);
+                return;
             }
+            _previewImg.sprite = _previewResult.Sprite;
+            _previewImg.color = Color.white; _previewImg.preserveAspect = true;
+            _previewCaption.text = _previewResult.Caption;
         }
 
+        void RetryPreviewWhenReady()
+        {
+            // Native map-card assets may become available shortly after opening the menu.
+            if (_root == null || _previewImg == null || _previewResult != null || _previewRetryFrames <= 0) return;
+            _previewRetryFrames--;
+            if (_previewRetryFrames % 30 == 0) SetPreview();
+        }
         void DestroyUI()
         {
             ClosePicker();
             if (_root != null) { _root.SetActive(false); UnityEngine.Object.Destroy(_root); _root = null; }
-            if (_previewSprite != null) UnityEngine.Object.Destroy(_previewSprite);
-            if (_previewTexture != null) UnityEngine.Object.Destroy(_previewTexture);
-            _previewSprite = null; _previewTexture = null;
+            _previewResult?.Release(); _previewResult = null;
+            _previewRetryFrames = 0;
             _mapLabel = _deckLabel = _aiPlayerLabel = _aiDeckLabel = _statusLabel = _diffLabel = _previewCaption = null;
-            _teamSummary = _slotDetail = null; _startButton = null; _previewImg = null; _optLabels.Clear();
+            _teamSummary = null; _startButton = null; _previewImg = null; _optLabels.Clear(); _rosterDeckLabels.Clear();
         }
 
         void UpdateLabels()
         {
             if (_mapLabel != null) _mapLabel.text = _mapIdx >= 0 ? _mapNames[_mapIdx] : "No scenarios available";
             if (_deckLabel != null) _deckLabel.text = _decks.Count > 0 ? LobbyText.DeckName(_deckNames[_deckIdx]) : "No valid decks for this scenario";
-            if (_aiPlayerLabel != null) _aiPlayerLabel.text = SlotText(_aiSlots[_aiSlotIdx]);
-            if (_aiDeckLabel != null)
+            foreach (var view in _rosterDeckLabels)
             {
-                int index = _aiSlots[_aiSlotIdx].DeckIndex;
-                _aiDeckLabel.text = index >= 0 && index < _deckNames.Count ? LobbyText.DeckName(_deckNames[index]) : "Same as your deck";
-            }
-            if (_slotDetail != null)
-            {
-                var slot = _aiSlots[_aiSlotIdx];
-                _slotDetail.text = $"Slot {_aiSlotIdx + 1} of {_aiSlots.Count} · {slot.TeamName} · UID {slot.PlayerUid} · scenario-controlled";
+                int index = _aiSlots[view.Slot.AiIndex].DeckIndex;
+                view.Label.text = index >= 0 && index < _deckNames.Count ? LobbyText.DeckName(_deckNames[index]) : "Same as your deck";
             }
             if (_diffLabel != null) _diffLabel.text = _diffNames[Math.Max(1, Math.Min(3, _diff))];
             for (int i = 0; i < _optLabels.Count; i++) _optLabels[i].text = OptValueText(_opts[_optionPage * 4 + i]);
@@ -498,9 +430,9 @@ namespace BALocalSkirmish
                 int allies = _aiSlots.FindAll(s => s.TeamSide == 0).Count;
                 int opponents = _aiSlots.FindAll(s => s.TeamSide == 1).Count;
                 int custom = _aiSlots.FindAll(s => s.DeckIndex >= 0).Count;
-                _teamSummary.text = IsSkirmishMap()
-                    ? $"You: first Alpha slot (existing loader)\nAI metadata: {allies} allies · {opponents} opponents\n{custom} of {_aiSlots.Count} AI decks customized\nScenario scripts decide active spawns."
-                    : "Scenario-controlled teams and players.\nDecks shown are those returned by the game for this scenario.";
+                int others = _aiSlots.Count - allies - opponents;
+                _teamSummary.text = $"{allies} allied AI · {opponents} opposing AI"
+                    + (others > 0 ? $" · {others} other AI" : "") + $" · {custom} custom decks";
             }
             if (_startButton != null) _startButton.interactable = _mapIdx >= 0 && _decks.Count > 0 && (!IsSkirmishMap() || _aiDeckPatchReady);
             if (_statusLabel != null)

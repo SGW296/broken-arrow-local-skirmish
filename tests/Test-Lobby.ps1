@@ -17,8 +17,10 @@ $methods = @(
     'static string ScenarioKey(', 'static string DeckKey(', 'int FindDeck(',
     'SetupSnapshot CaptureSetup(', 'void RestoreSetup(', 'void ReadSettings(',
     'void SaveCurrent(', 'void WriteSettings(', 'void SelectMap(',
-    'List<int> FilteredMaps(', 'void SavePreset(', 'void LoadPreset('
+    'List<int> FilteredMaps(', 'void SavePreset(', 'void LoadPreset(', 'void PickDeckForSlot('
 ) | ForEach-Object { Get-MethodSource $_ }
+$source = Get-Content (Join-Path $PSScriptRoot '../src/TeamRosterUI.cs') -Raw
+$methods += Get-MethodSource 'List<RosterTeam> ReadRoster('
 $generated = "using System; using System.IO; using System.Collections.Generic; namespace BALocalSkirmish { public partial class Core {`n" + ($methods -join "`n") + "`n} }"
 $fixture = Join-Path $PSScriptRoot 'LobbyRegression/obj/LobbyFixture.cs'
 New-Item -ItemType Directory -Path (Split-Path $fixture -Parent) -Force | Out-Null

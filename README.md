@@ -1,7 +1,7 @@
 # Broken Arrow: Local Skirmish
 
-> **Local UI fork (2.7.0, branch `ui/clear-local-lobby`)**: searchable selectors, scenario filters,
-> clearer labels and AI slot/team details, paged options, remembered setups and named presets.
+> **Local UI fork (2.8.0, branch `ui/team-roster-previews`)**: two visible team rosters with deck
+> controls on each row, native map preview images, searchable selectors, filters and saved setups.
 > See [implementation and validation notes](docs/UI-ITERATION.md). Built against the local v1.2.0
 > assemblies and checked with managed regressions; live game testing is still required.
 > `dist/BALocalSkirmish.dll` remains the original upstream 2.6.3 binary. Build this fork from source
@@ -44,13 +44,15 @@ Play button, which runs EasyAntiCheat and blocks mods), then click **Skirmish**.
 3. Choose your **map**, **deck**, **difficulty**, and any map-specific options (income, time limit,
    day/night, map size), then **Start Battle**.
 
-On dedicated skirmish maps, choose an **AI player**, then choose that player's **AI deck**. Repeat for
-each AI ally or opponent you want to customize. Switching between AI players keeps their individual
-choices; the status line shows how many have custom decks. Your **Player deck** stays separate.
+On dedicated skirmish maps, **Your team** and **Opposing team** show the existing players side by
+side. Click the deck button directly on your human row or any configurable AI row. Each row keeps
+its own deck; there is no separate slot chooser. Extra rows/teams are paged when needed.
 
-Each AI defaults to **Same as player**. Use the deck arrows to choose from the available decks, including
-your saved custom decks. Create or edit custom decks in the game's deck builder before opening setup.
-The human slot is excluded from the AI player list. The inspected built-in maps have nine AI slots.
+Each AI defaults to **Same as your deck**. The deck buttons open searchable lists, including saved
+custom decks. Create/edit custom decks in the game's deck builder before opening setup. The inspected
+built-in maps have your human row, four allied AI rows and five opposing AI rows. Team membership
+and AI numbers still come from the scenario. Built-in previews use the game's native map-card sprites;
+scenario preview files take precedence when available.
 
 This UI fork remembers settings per scenario on map change, close and launch, with named presets.
 Restoring defaults resets AI choices to **Same as your deck**. These controls are only

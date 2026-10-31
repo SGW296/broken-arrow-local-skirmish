@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/LobbySettings.cs" Link="LobbySettings.cs" />
+    <Compile Include="../../src/TeamRoster.cs" Link="TeamRoster.cs" />
     <Compile Include="obj/LobbyFixture.cs" />
     <Compile Include="Program.cs" />
   </ItemGroup>

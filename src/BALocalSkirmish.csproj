@@ -20,6 +20,9 @@
     <Compile Include="LocalSkirmish.cs" />
     <Compile Include="LobbySettings.cs" />
     <Compile Include="LobbyUI.cs" />
+    <Compile Include="TeamRosterUI.cs" />
+    <Compile Include="TeamRoster.cs" />
+    <Compile Include="MapPreviewResolver.cs" />
   </ItemGroup>
 
   <!-- These assemblies are generated the first time you launch the game with
