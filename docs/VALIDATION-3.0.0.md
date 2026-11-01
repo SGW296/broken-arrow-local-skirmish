@@ -1,5 +1,9 @@
 # Local lobby 3.0.0 validation
 
+**Live follow-up:** the first user Airbase/Hard 1v1 smoke test passed on 1 November 2026, including
+observed enemy aircraft. [Live test record](LIVE-TEST-3.0.0.md). The automated validation below is
+the build-time record; broad live coverage and resource/pacing validation remain incomplete.
+
 Completed 1 November 2026. Branch `feature/native-skirmish-parity`.
 
 Release build: net6.0/x64 against the installed Broken Arrow v1.2.0 MelonLoader-generated APIs.

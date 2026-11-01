@@ -6,6 +6,12 @@ are outside this project unless explicitly added later.
 
 ## Recommendation
 
+**Agreed active scope (1 November 2026):** polished lobby and better scripted AI first. The full
+commander is deferred. The first live 3.0.0 Airbase/Hard 1v1 smoke test passed on 1 November:
+the user reported the setup worked and the enemy fielded a jet. Ground/air reinforcement pressure
+was overwhelming. Preserve that baseline, investigate wave ownership/scaling before tuning pacing,
+and continue targeted live acceptance rather than treating one short match as broad validation.
+
 Keep two delivery tracks and one shared test foundation:
 
 1. **Offline lobby:** a clear, attractive, dependable RTS setup and launch experience.
@@ -23,8 +29,9 @@ it is not a commitment to months of unattended implementation or a fixed deliver
 - Visible teams, closed optional slots, match formats, native presets, custom decks, nation filters,
   previews and saved setups are implemented. A native-inspired graphical overhaul is implemented.
 - The build and 633 managed checks pass, plus the managed Harmony registration fixture.
-- **The 3.0.0 release has not yet passed live match or visual acceptance.** It is a candidate,
-  not evidence of a finished production-quality lobby or working native detours in every case.
+- **First live smoke test passed:** Airbase/Hard 1v1, native AI units and a jet observed, eight runtime
+  closures logged. Broad visual/match/restart acceptance remains incomplete; 3.0.0 remains a candidate.
+  See [the live test record](docs/LIVE-TEST-3.0.0.md). Fair resource rules have not been established.
 - The missing-aircraft investigation found a concrete custom-deck limitation: preset-zero's
   behavior can suppress air requests even when the deck contains aircraft. Native preset mode
   and custom-deck mode must not be presented as interchangeable.
@@ -154,5 +161,6 @@ on a derivative. Research informs the design; this plan does not assume an effor
 - Build, back up, install and verify updates for the user, then report when the game is ready to launch.
 - Update this roadmap from evidence; do not add approval gates to routine authorized fixes.
 
-**Recommended next action:** live baseline acceptance of installed 3.0.0, followed by the separate
-behavior/custom-deck improvement. Keep the commander experiment bounded until its foundation passes.
+**Recommended next action:** preserve the first live baseline, add compact native-wave/active-slot
+diagnostics and finish targeted acceptance. Then improve behavior/custom-deck routing and measured
+pacing. Keep the commander experiment bounded until its foundation passes.
