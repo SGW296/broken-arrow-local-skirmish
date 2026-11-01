@@ -4,6 +4,8 @@ A community fork of [BovineOverlord's Local Skirmish](https://github.com/BovineO
 
 **Public alpha: 3.1.0-alpha.1. Offline only. Tested against Broken Arrow v1.2.0 on Windows x64 with an existing MelonLoader 0.7.3 setup.** Newer game versions are untested. This is an unofficial mod and is not endorsed by the game developers or publisher.
 
+[Download the public alpha](https://github.com/SGW296/broken-arrow-local-skirmish/releases/tag/v3.1.0-alpha.1). The initial user-run lobby/control checklist passed; broader match and compatibility coverage remains open. See [the validation record](docs/ALPHA-VALIDATION.md).
+
 ## Download and install
 
 1. Download the **release ZIP** from [Releases](https://github.com/SGW296/broken-arrow-local-skirmish/releases). GitHub's **Code → Download ZIP** contains source, not an installable build.

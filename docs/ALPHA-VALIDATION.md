@@ -35,11 +35,18 @@ The 3.1.0-alpha.1 candidate was backed up, installed and hash-verified on the lo
 The startup log identifies the alpha and records successful registration of all seven hooks, with
 no recorded mod error. That is startup evidence, not visual or match acceptance.
 
-**The new graphical pass has not yet been visually checked in-game.** User-run acceptance is
-pending for the lobby/pickers, native previews, current selections, active counts, closed cards,
-Escape handling, saved setup restore and return/reopen. Screenshots have not been captured for
-this alpha. Broader acceptance should include another map, uneven teams, mixed army modes,
-restart, full-match victory and failure recovery.
+**User follow-up, 1 November 2026:** the user reported that the requested lobby checks passed at
+their usual resolution: map preview, active/closed counts, the army picker's current-choice marker,
+Escape/Cancel and saved 1v1 setup restoration. The exact resolution was not separately recorded.
+This is user-run visual/control acceptance of the installed, hash-verified alpha; no automated
+desktop interaction or screenshot was used to establish this result.
+
+The published ZIP remains the same tested build from source commit `2a259bb`. Its included
+validation note records the pending status at packaging time. The dated follow-up here, in the
+release notes and in the attached live-acceptance record supersedes that build-time status.
+
+Screenshots, additional maps, uneven teams, mixed army modes, battle restart, full-match victory
+and failure recovery remain outside this reported checklist. They must not be marked as passed.
 
 Until individually observed and recorded, those checks remain outstanding. Missing evidence must
 not be presented as a pass. No new AI decisions, resource rules or online functionality are included.
