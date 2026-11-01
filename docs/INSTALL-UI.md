@@ -1,5 +1,7 @@
 # Local Skirmish UI — 2.8.0 local fork
 
+> Historical development notes. For the public alpha use [INSTALL-LOBBY.md](INSTALL-LOBBY.md).
+
 Team roster and map-preview iteration for the existing Broken Arrow v1.2.0 + MelonLoader setup.
 This is a local fork, not an official upstream release.
 

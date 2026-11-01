@@ -7,3 +7,9 @@ obj/
 # Local tooling
 *.log
 diagnostics/
+artifacts/
+
+# Local AI investigations are developed separately from the lobby alpha.
+research-air/
+docs/AIR-AI-INVESTIGATION.md
+docs/AIR-MOD-EVIDENCE.md

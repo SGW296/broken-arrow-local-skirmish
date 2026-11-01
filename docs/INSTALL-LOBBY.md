@@ -1,97 +1,43 @@
-# Local Skirmish Lobby 3.0.1 — Normal baseline diagnostics
+# Install Local Skirmish Lobby 3.1.0-alpha.1
 
-Native-style offline lobby for the existing Broken Arrow v1.2.0 + MelonLoader setup.
-This is a local fork, not an official game or upstream mod release.
+This experimental alpha targets **Broken Arrow v1.2.0, Windows x64 and an existing working MelonLoader 0.7.3 offline setup**. It does not install MelonLoader, change a launcher or enable online play. Other game versions are untested.
 
-## Install
+## Release ZIP installation
 
-1. Close the game. Back up `C:\Games\Broken Arrow\Mods\BALocalSkirmish.dll` outside `Mods`.
-   Also back up `C:\Games\Broken Arrow\UserData\BALocalSkirmish\lobby.json` if it exists.
-2. Copy **only this package's top-level `BALocalSkirmish.dll`** to
-   `C:\Games\Broken Arrow\Mods`, replacing the existing DLL.
-3. Keep the existing loader and working offline launcher. Do not run `install.bat`, copy rollback
-   directories into Mods, or leave a second renamed DLL copy in Mods.
-4. Launch as usual and choose Skirmish. The log identifies **3.0.1** and should report successful
-   closed-slot and native-AI-preset hook registration.
+1. Download the ZIP attached to the [alpha release](https://github.com/SGW296/broken-arrow-local-skirmish/releases), not the automatic source-code archive.
+2. Extract it to a separate folder outside the game directory and close Broken Arrow.
+3. Run `install.bat`. If asked, select the game folder containing `BrokenArrow.exe`.
+4. Keep the backup location printed by the installer. Launch using your existing working offline launcher.
+5. Choose **Skirmish**. The lobby header and log should identify **3.1.0-alpha.1**; MelonLoader lists assembly version 3.1.0.
 
-This package has not changed your installed game, loader or mod. No game assets are redistributed.
-Existing map/deck presets retain the same saved-settings schema.
+The package has one top-level mod DLL. The installer verifies it against `manifest.json` and replaces only `Mods/BALocalSkirmish.dll`. It preserves the loader, launcher, original assets and current `UserData/BALocalSkirmish/lobby.json`. An existing mod and settings are backed up outside `Mods` before replacement. The legacy upstream binary is not an installation candidate.
 
-### What changed in 3.0.1
+The install manifest verifies file integrity; it does not prove publisher approval or compatibility with untested game versions. An unsupported-version or running-game check must be resolved before installation.
 
-Normal is the new label for native Medium (value 2) and the default for new/reset skirmish setups.
-Saved Hard/Easy choices remain, so select **Normal** for the next baseline test. “Reset setup” resets
-to the mod's defaults. AI reinforcement strength, timing and resource rules are unchanged.
-New logs record requested/forwarded waves, owners/categories, runtime slot flags and requested map
-options. They do not claim confirmed unit creation or resolved Auto size. See `NORMAL-BASELINE.md`.
+## Manual installation
 
-## Smaller matches and no-player slots
+1. Close the game. Back up `Mods/BALocalSkirmish.dll` and `UserData/BALocalSkirmish/lobby.json`, if present, outside `Mods`.
+2. Verify the package DLL's SHA-256 against `manifest.json`.
+3. Copy only the package's top-level `BALocalSkirmish.dll` into `Mods`, replacing the previous file.
+4. Keep the working loader and offline launcher. Do not leave a renamed second DLL in `Mods`.
 
-Click an optional AI card's **ACTIVE / CLOSED** control and choose **Closed — no player**.
-Choose **AI player** to restore it. The army choice is retained while closed. Human and required
-scenario slots are protected; at least one opposing slot stays active.
+## Lobby controls
 
-**Match format** offers 1v1–5v5, counting you as one player. For 1v1, all four allied AI and four
-opposing AI close. You can make uneven teams manually, such as you versus three AI. **Fill all AI
-slots** reactivates existing bots. No new player IDs are invented.
+Choose a dedicated skirmish map, then use the friendly and opposing cards to choose armies.
+**Match format** sets 1v1–5v5 using existing scenario slots. **Closed — no player** disables an optional bot while retaining its saved army choice; human and required slots are protected. At least one enemy remains active.
 
-This changes runtime activation before scripts initialize. Internal player identities remain because
-the game references them. On shipped maps, closed bots no longer report themselves as AI to the
-scripts. A second guard prevents direct multi-unit waves from closed owners. It does more than hide
-cards or omit deck assignments. Workshop scripts/preplaced units need separate live validation;
-the shipped-map investigation does not establish every custom mission's compatibility.
+**Native AI preset** selects an authored scripted army on supported built-in maps. **Custom deck** and **Same as your deck** use the upstream deck-substitution extension. These modes have different capabilities: adding aircraft to a custom deck does not make a ground-only behavior request aircraft. Team nation filters constrain available army choices and may replace incompatible selections.
 
-## Armies, nations and saved setups
+**Normal** maps to the native Medium value 2. Existing saved Hard/Easy choices remain valid. **Reset setup** restores the mod's defaults, including Normal for dedicated skirmish; it also resets slot and army choices. This release does not change AI timing, production or combat rules.
 
-An AI's army selector offers:
+Map previews use loaded game-owned artwork where available. Missing previews have a fallback. Extra scenario teams/rows and options are paged.
 
-- **AI preset · ...**: real native scripted army profiles, offered only on the 22 audited built-in
-  v1.2.0 skirmish maps. Native unit pools/upgrades/transports bypass custom-deck wave replacement.
-- A named deck or **Same as your deck**: the existing mod's full-deck extension. Its upstream live
-  behaviour limitations remain; this release does not claim every custom-deck issue is fixed.
+## Settings, diagnostics and rollback
 
-Native and custom armies can coexist. The team nation selector filters choices and replaces
-incompatible selections with matching available armies. **Any nation** permits mixed/mirror armies.
-The human selects a full available deck. Difficulty remains one scenario-wide setting.
+Settings live under MelonLoader's `UserData/BALocalSkirmish/lobby.json`. Named setups and the last per-map choices persist. Missing armies or invalid values produce a notice or block launch. Unreadable/newer settings are preserved, with saving disabled for that session.
 
-Closed slots, nation filters and profile IDs persist with named setups. Reset setup restores
-the all-active/default-deck baseline with Normal difficulty. Campaign/PvE player setup remains scenario-controlled.
+To roll back, close the game and restore the backed-up DLL. Restore the matching settings backup if needed: an older mod may discard fields it does not understand. To uninstall, remove this mod DLL from `Mods`; keep the loader if other mods use it.
 
-## Graphical overhaul
+If setup or launch fails, collect `MelonLoader/Latest.log` before relaunch replaces it. `collect-diagnostics.bat` saves a local report and uploads nothing. Review logs for personal paths and names before attaching them to an issue. Include the map, slot/army modes, resolution and steps that reproduce the problem.
 
-Large battlefield/settings sidebar, blue/red force banners, five player cards per side, direct army
-and slot-state controls, native fonts/artwork when loaded, and matching larger picker windows.
-Borrowed assets stay owned by the game; fallback styling works if an asset is unavailable. Extra
-custom rows/teams still page. Previews, search, numeric settings and saved setups remain available.
-
-## Rollback and settings
-
-Close the game and copy `rollback\BALocalSkirmish.dll` (3.0.0) over the installed DLL.
-`upstream-original\BALocalSkirmish.dll` is the original 2.6.3 mod. Restore your settings backup when
-rolling back: older versions ignore new fields and can discard them when saving.
-
-Settings normally live under `UserData\BALocalSkirmish\lobby.json`, using MelonLoader's UserData
-directory. Missing armies/slots and invalid values reset with a notice or block launch. Unreadable
-files are preserved and saving is disabled that session. To reset, close the game, move the file
-aside and restart. Native closed-slot/profile binding failures stop initialization and log an error
-instead of silently starting with different armies.
-
-## Validation and first live test
-
-Built against local v1.2.0 assemblies, net6.0/x64, without warnings/errors. Automated checks cover
-slot policy, runtime activation/identity, direct wave suppression, native army binding, mixed armies,
-restart/cleanup, persistence and borrowed UI assets. Managed Harmony dispatch is exercised. Native
-code and shipped-graph inspection support the chosen hook points; tests do not run the native game.
-The 3.0.0 validation is historical; see `VALIDATION-3.0.1.md` for the current build checks.
-
-The prior 3.0.0 Airbase/Hard smoke test passed, including an observed enemy jet. **The 3.0.1
-diagnostic update has not yet been tested in a running match.** First repeat the same Airbase 1v1
-setup using Normal difficulty, then test uneven teams and a restart. Verify closed owners never spawn, chosen
-armies appear, objectives work, settings persist and UI fits your resolution. Preserve
-`MelonLoader\Latest.log` before relaunch if anything fails.
-
-The included `NATIVE-SKIRMISH-AUDIT.md`, `CLOSED-SLOT-ENGINE.md`, `NATIVE-AI-PROFILE-NOTES.md` and
-`NATIVE-UI-DESIGN.md` contain the detailed findings and limits. Online invites, matchmaking, ready
-clients, synchronized humans, human team switching and online spectators are not simulated offline.
-
-Upstream: https://github.com/BovineOverlord/broken-arrow-local-skirmish (MIT; license included).
+See [alpha validation](ALPHA-VALIDATION.md) for actual checks and remaining live acceptance. Builds on your machine, successful hook registration and a correct file hash are separate from successful in-game behavior.

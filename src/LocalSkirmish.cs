@@ -31,7 +31,7 @@ using Il2CppBrokenArrow.MissionEditor.Inspector;
 using Il2CppBrokenArrow.Shared.Ecs;
 using Il2CppNetworkCommon.Enums.Common;
 
-[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "3.0.1", "BovineOverlord; local UI fork")]
+[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "3.1.0", "BovineOverlord; SGW296 lobby fork")]
 [assembly: MelonGame(null, null)]
 // Hooks are installed explicitly below so failures can block launching. Without this
 // opt-out, MelonLoader installs them again and the second load prefix clears the plan.
@@ -56,6 +56,7 @@ namespace BALocalSkirmish
     // at load time so the local battle honours them.
     public partial class Core : MelonMod
     {
+        internal const string PublicVersion = "3.1.0-alpha.1";
         public static Core Instance;
         static readonly System.Random _rng = new System.Random();
 
@@ -113,7 +114,7 @@ namespace BALocalSkirmish
         public override void OnInitializeMelon()
         {
             Instance = this;
-            LoggerInstance.Msg("BA Local Skirmish v3.0.1 Normal-baseline diagnostics initializing (manual patch registration only)...");
+            LoggerInstance.Msg("BA Local Skirmish " + PublicVersion + " initializing (offline lobby; manual patch registration only)...");
             Patch(typeof(CreateLobbyPatch));
             _aiDeckPatchReady = Patch(typeof(AiPlayerDeckPatch))
                 & Patch(typeof(DeckAssignmentPatch)) & Patch(typeof(EndBattleDeckPatch))
@@ -139,6 +140,7 @@ namespace BALocalSkirmish
 
         public override void OnUpdate()
         {
+            HandleLobbyKeyboard();
             RetryPreviewWhenReady();
             if (_applyFrames <= 0) return;
             _applyFrames--;

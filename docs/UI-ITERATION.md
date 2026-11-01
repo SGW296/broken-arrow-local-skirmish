@@ -1,5 +1,7 @@
 # Local lobby iteration — 3.0.0 local fork
 
+> Historical development record. Current alpha validation is in [ALPHA-VALIDATION.md](ALPHA-VALIDATION.md).
+
 Base: BovineOverlord/broken-arrow-local-skirmish at `77ba5ae30bf4705b1119ae39a0a829708ede6b6b`.
 Branch: `feature/native-skirmish-parity`, based on the previous UI branches.
 The version number identifies this fork, not an upstream release.

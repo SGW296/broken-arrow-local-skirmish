@@ -22,7 +22,7 @@ namespace BALocalSkirmish
         bool _saveFailed;
         int _filter, _optionPage;
         readonly Dictionary<int, int> _teamCountries = new Dictionary<int, int>();
-        Text _teamSummary;
+        Text _teamSummary, _previewEmpty;
         Button _startButton;
         MapPreviewResult _previewResult;
         int _previewRetryFrames;
@@ -34,12 +34,15 @@ namespace BALocalSkirmish
         string _pickerSearch = "";
         List<Choice> _pickerChoices;
         Action<int> _pick;
+        bool _keyboardUnavailable;
 
         sealed class Choice
         {
             public int Value;
             public string Label, Detail;
-            public Choice(int value, string label, string detail = "") { Value = value; Label = label; Detail = detail; }
+            public bool IsCurrent;
+            public Choice(int value, string label, string detail = "", bool isCurrent = false)
+            { Value = value; Label = label; Detail = detail; IsCurrent = isCurrent; }
         }
 
         static string ScenarioKey(ScenarioSource scenario)
@@ -238,7 +241,7 @@ namespace BALocalSkirmish
         void PickFilter()
         {
             var choices = new List<Choice>();
-            for (int i = 0; i < FilterNames.Length; i++) choices.Add(new Choice(i, FilterNames[i]));
+            for (int i = 0; i < FilterNames.Length; i++) choices.Add(new Choice(i, FilterNames[i], "", i == _filter));
             OpenPicker("Scenario category", choices, value =>
             {
                 _filter = value;
@@ -260,7 +263,7 @@ namespace BALocalSkirmish
                 string raw = NameOf(_maps[i]);
                 bool duplicate = _maps.FindAll(s => NameOf(s) == raw).Count > 1;
                 choices.Add(new Choice(i, _mapNames[i], Category(_maps[i]) + " · " + raw
-                    + (duplicate ? " · " + _maps[i].Folder : "")));
+                    + (duplicate ? " · " + _maps[i].Folder : ""), i == _mapIdx));
             }
             OpenPicker("Choose a scenario — " + FilterNames[_filter], choices, SelectMap);
         }
@@ -272,15 +275,18 @@ namespace BALocalSkirmish
             var slot = aiIndex >= 0 ? _aiSlots[aiIndex] : null;
             var choices = new List<Choice>();
             int side = slot?.TeamSide ?? 0;
-            if (slot != null && MatchesTeamCountry(side, _deckIdx)) choices.Add(new Choice(-1, "Same as your deck", "Follows your deck selection for this AI slot."));
+            if (slot != null && MatchesTeamCountry(side, _deckIdx)) choices.Add(new Choice(-1, "Same as your deck",
+                "Custom deck · follows your battlegroup; AI uses scenario orders.", slot.NativePresetId < 0 && slot.DeckIndex < 0));
             if (slot != null)
                 foreach (var profile in NativeAiProfiles.GetAvailable(_maps[_mapIdx]))
                     if (TeamCountry(side) == 0 || TeamCountry(side) == profile.CountryId)
                         choices.Add(new Choice(-1000 - profile.Id, "AI preset · " + profile.Name,
-                            CountryName(profile.CountryId) + " · Native scripted army"));
+                            CountryName(profile.CountryId) + " · Native scripted army", slot.NativePresetId == profile.Id));
             for (int i = 0; i < _decks.Count; i++)
-                if (MatchesTeamCountry(side, i)) choices.Add(new Choice(i, LobbyText.DeckName(_deckNames[i]), _deckNames[i]));
-            OpenPicker(slot != null ? "Deck for " + slot.Name : "Your deck — available for this scenario", choices, value =>
+                if (MatchesTeamCountry(side, i)) choices.Add(new Choice(i, LobbyText.DeckName(_deckNames[i]),
+                    slot != null ? "Custom deck · " + _deckNames[i] : _deckNames[i],
+                    slot != null ? slot.NativePresetId < 0 && slot.DeckIndex == i : _deckIdx == i));
+            OpenPicker(slot != null ? "Choose an army — " + slot.Name : "Choose your battlegroup", choices, value =>
             {
                 if (slot != null)
                 {
@@ -299,7 +305,8 @@ namespace BALocalSkirmish
             {
                 var choices = new List<Choice>();
                 for (int i = 0; i < option.EnumVals.Count; i++)
-                    choices.Add(new Choice(option.EnumVals[i], option.EnumLabels[i], "Scenario value: " + option.EnumVals[i]));
+                    choices.Add(new Choice(option.EnumVals[i], option.EnumLabels[i], "",
+                        option.EnumVals[i] == (_optVals.TryGetValue(option.Uid, out int current) ? current : option.Default)));
                 OpenPicker(option.Label, choices, value => { _optVals[option.Uid] = value; UpdateLabels(); });
             }
             else OpenNumber(option);
@@ -424,7 +431,9 @@ namespace BALocalSkirmish
             var panel = MakeImage(_root.transform, 0, 0, 1680, 920, _skin.Panel).transform;
             MakeImage(panel, 0, 430, 1680, 60, new Color(0.025f, 0.03f, 0.04f));
             MakeLabel(panel, -535, 430, 540, 44, "LOCAL SKIRMISH", 30, TextAnchor.MiddleLeft, _skin.Text);
-            MakeLabel(panel, 568, 430, 470, 30, "OFFLINE  /  CUSTOM MATCH", 15, TextAnchor.MiddleRight, _skin.MutedText);
+            MakeImage(panel, 20, 430, 204, 30, Color.Lerp(_skin.Control, _skin.FriendlyAccent, 0.15f)).raycastTarget = false;
+            MakeLabel(panel, 20, 430, 200, 28, "PUBLIC ALPHA", 13, TextAnchor.MiddleCenter, _skin.Text);
+            MakeLabel(panel, 568, 430, 470, 30, PublicVersion + "  /  OFFLINE", 15, TextAnchor.MiddleRight, _skin.MutedText);
 
             BuildLobbyBody(panel);
             _previewRetryFrames = 300;
@@ -439,10 +448,12 @@ namespace BALocalSkirmish
             if (_previewResult == null)
             {
                 _previewCaption.text = "No map preview available";
+                if (_previewEmpty != null) _previewEmpty.text = "PREVIEW UNAVAILABLE\n" + _mapNames[_mapIdx];
                 return;
             }
             _previewImg.sprite = _previewResult.Sprite;
             _previewImg.color = Color.white; _previewImg.preserveAspect = true;
+            if (_previewEmpty != null) _previewEmpty.text = "";
             _previewCaption.text = _previewResult.Caption;
         }
 
@@ -453,6 +464,21 @@ namespace BALocalSkirmish
             _previewRetryFrames--;
             if (_previewRetryFrames % 30 == 0) SetPreview();
         }
+
+        void HandleLobbyKeyboard()
+        {
+            if (_root == null || _keyboardUnavailable) return;
+            try { if (!Input.GetKeyDown(KeyCode.Escape)) return; }
+            catch (Exception error)
+            {
+                _keyboardUnavailable = true;
+                try { MelonLogger.Warning("[LocalSkirmish] Keyboard shortcuts unavailable; use the lobby buttons. " + error.Message); } catch { }
+                return;
+            }
+            if (_picker != null) ClosePicker();
+            else CloseSetup();
+        }
+
         void DestroyUI()
         {
             ClosePicker();
@@ -460,7 +486,8 @@ namespace BALocalSkirmish
             _previewResult?.Release(); _previewResult = null;
             _previewRetryFrames = 0;
             _mapLabel = _deckLabel = _aiPlayerLabel = _aiDeckLabel = _statusLabel = _diffLabel = _previewCaption = null;
-            _teamSummary = null; _startButton = null; _previewImg = null; _optLabels.Clear(); _rosterDeckLabels.Clear();
+            _teamSummary = _previewEmpty = null; _startButton = null; _previewImg = null;
+            _optLabels.Clear(); _rosterDeckLabels.Clear(); _rosterTeamLabels.Clear();
         }
 
         void UpdateLabels()
@@ -470,13 +497,7 @@ namespace BALocalSkirmish
             RefreshRosterPresentation();
             if (_diffLabel != null) _diffLabel.text = _diffNames[Math.Max(1, Math.Min(3, _diff))];
             for (int i = 0; i < _optLabels.Count; i++) _optLabels[i].text = OptValueText(_opts[_optionPage * 4 + i]);
-            if (_teamSummary != null)
-            {
-                int allies = _aiSlots.FindAll(s => s.TeamSide == 0 && !s.Closed).Count;
-                int opponents = _aiSlots.FindAll(s => s.TeamSide == 1 && !s.Closed).Count;
-                int closed = _aiSlots.FindAll(s => s.Closed).Count;
-                _teamSummary.text = $"YOU + {allies} ALLIED AI   vs   {opponents} OPPOSING AI     ·     {closed} CLOSED SLOTS";
-            }
+            if (_teamSummary != null) _teamSummary.text = MatchRosterSummary(ReadRoster());
             string blocked = GetLaunchProblem();
             if (_startButton != null) _startButton.interactable = blocked == null;
             if (_statusLabel != null)
@@ -484,21 +505,24 @@ namespace BALocalSkirmish
                 _statusLabel.text = blocked != null ? blocked : !_settingsWritable
                     ? "Settings preserved but unreadable. Saving is disabled; see the MelonLoader log."
                     : _saveFailed ? "Settings could not be saved. Current selections still work; see the MelonLoader log."
-                    : _notice.Length > 0 ? _notice : $"{FilteredMaps().Count} scenarios in category · Settings remembered on map change, close and launch.";
+                    : _notice.Length > 0 ? _notice : "Ready to deploy · Your setup is remembered automatically.";
             }
         }
 
         void OpenPicker(string title, List<Choice> choices, Action<int> picked)
         {
-            ClosePicker(); _pickerChoices = choices; _pick = picked; _pickerPage = 0; _pickerSearch = "";
+            ClosePicker(); _pickerChoices = choices; _pick = picked; _pickerSearch = "";
+            _pickerPage = Math.Max(0, choices.FindIndex(choice => choice.IsCurrent)) / 8;
             _picker = MakeImage(_root.transform, 0, 0, 10000, 10000, _skin?.PopupBackground ?? new Color(0, 0, 0, 0.85f)).gameObject;
             var panel = MakeImage(_picker.transform, 0, 0, 1120, 760, _skin?.Panel ?? CPanel).transform;
-            MakeLabel(panel, 0, 328, 1060, 44, title, 28, TextAnchor.MiddleCenter, _skin?.Text ?? CVal);
+            var heading = MakeLabel(panel, 0, 328, 1060, 44, title, 28, TextAnchor.MiddleCenter, _skin?.Text ?? CVal);
+            heading.resizeTextForBestFit = true; heading.resizeTextMinSize = 20; heading.resizeTextMaxSize = 28;
             MakeInput(panel, 0, 280, 1060, "", "Search by name or identifier…", value => { _pickerSearch = value; _pickerPage = 0; DrawPickerRows(panel); });
             _pickerCount = MakeLabel(panel, 0, -330, 370, 36, "", 17, TextAnchor.MiddleCenter);
             _pickerPrev = MakeButton(panel, -467, -330, 126, 40, "Previous", () => { _pickerPage--; DrawPickerRows(panel); }, size: 18);
             _pickerNext = MakeButton(panel, -325, -330, 126, 40, "Next", () => { _pickerPage++; DrawPickerRows(panel); }, size: 18);
             MakeButton(panel, 420, -330, 220, 40, "Cancel", ClosePicker, CCancel, 18);
+            MakeLabel(panel, 0, -284, 1060, 22, "Choose an entry to apply. Cancel keeps your current selection.", 13, TextAnchor.MiddleLeft, _skin?.MutedText ?? CLabel);
             DrawPickerRows(panel);
         }
 
@@ -516,10 +540,15 @@ namespace BALocalSkirmish
                 var button = MakeButton(_pickerRows.transform, 0, 224 - (i % 8) * 65, 1060, 60, "", () =>
                 {
                     var action = _pick; ClosePicker(); action(choice.Value);
-                });
-                var label = MakeLabel(button.transform, 0, string.IsNullOrEmpty(choice.Detail) ? 0 : 12, 1020, 29, choice.Label, 21, TextAnchor.MiddleLeft);
+                }, choice.IsCurrent ? Color.Lerp(_skin?.Control ?? CBtn, _skin?.FriendlyAccent ?? CStart, 0.16f) : (Color?)null);
+                if (choice.IsCurrent)
+                {
+                    MakeImage(button.transform, -528, 0, 4, 58, _skin?.FriendlyAccent ?? CStart).raycastTarget = false;
+                    MakeLabel(button.transform, 446, 0, 136, 28, "CURRENT", 13, TextAnchor.MiddleRight, _skin?.FriendlyAccent ?? CStart);
+                }
+                var label = MakeLabel(button.transform, -72, string.IsNullOrEmpty(choice.Detail) ? 0 : 12, 876, 29, choice.Label, 21, TextAnchor.MiddleLeft);
                 label.resizeTextForBestFit = true; label.resizeTextMinSize = 14; label.resizeTextMaxSize = 21;
-                if (!string.IsNullOrEmpty(choice.Detail)) MakeLabel(button.transform, 0, -16, 1020, 24, choice.Detail, 15, TextAnchor.MiddleLeft, _skin?.MutedText ?? CLabel);
+                if (!string.IsNullOrEmpty(choice.Detail)) MakeLabel(button.transform, -72, -16, 876, 24, choice.Detail, 15, TextAnchor.MiddleLeft, _skin?.MutedText ?? CLabel);
             }
             if (matches.Count == 0) MakeLabel(_pickerRows.transform, 0, 80, 1000, 80, "No matching choices. Try another search or category.", 21, TextAnchor.MiddleCenter);
             _pickerCount.text = $"{matches.Count} choices · Page {_pickerPage + 1} / {pages}";

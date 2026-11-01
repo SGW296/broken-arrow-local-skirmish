@@ -1,129 +1,60 @@
-# Broken Arrow: Local Skirmish
+# Broken Arrow: Local Skirmish Lobby
 
-Project scope, next milestones and commander feasibility: [PROJECT-ROADMAP.md](PROJECT-ROADMAP.md).
+A community fork of [BovineOverlord's Local Skirmish](https://github.com/BovineOverlord/broken-arrow-local-skirmish), with a clearer offline lobby, native map previews and configurable teams.
 
-> **Local lobby fork (3.0.1, branch `feature/normal-baseline`)**: Normal balance-reference labeling,
-> read-only reinforcement diagnostics, active/closed optional bots,
-> 1v1–5v5 setups, native AI army presets alongside custom decks, team nation filters, saved setups
-> and a full native-style graphical overhaul. See [installation and controls](docs/INSTALL-LOBBY.md)
-> and the [native skirmish investigation](docs/NATIVE-SKIRMISH-AUDIT.md).
-> See [implementation and validation notes](docs/UI-ITERATION.md). Built against the local v1.2.0
-> assemblies and checked with managed regressions; live game testing is still required.
-> `dist/BALocalSkirmish.dll` remains the original upstream 2.6.3 binary. Build this fork from source
-> or use its separate output package with manual DLL replacement. The original installer below
-> installs the original binary.
+**Public alpha: 3.1.0-alpha.1. Offline only. Tested against Broken Arrow v1.2.0 on Windows x64 with an existing MelonLoader 0.7.3 setup.** Newer game versions are untested. This is an unofficial mod and is not endorsed by the game developers or publisher.
 
-A MelonLoader mod that turns Broken Arrow's **Skirmish** button into a real, **fully-local battle against
-the AI**, with a proper setup panel for map, deck, difficulty and the map's own game options. No online
-lobby, no anti-cheat, no network required.
+## Download and install
 
-> **Single-player / offline only.** This is for offline modded play (EasyAntiCheat off). It does not enable
-> online multiplayer with a modded client. It's a fan-made mod, not affiliated with or endorsed by the
-> developers or publisher of Broken Arrow.
+1. Download the **release ZIP** from [Releases](https://github.com/SGW296/broken-arrow-local-skirmish/releases). GitHub's **Code → Download ZIP** contains source, not an installable build.
+2. Close the game and extract the release ZIP to its own folder outside the game directory.
+3. Run `install.bat`, or use the [manual installation instructions](docs/INSTALL-LOBBY.md).
+4. Launch using your existing working offline modded launcher and choose **Skirmish**.
 
----
+The installer verifies the release DLL, preserves your loader and launcher, and backs up the previous mod and lobby settings outside `Mods`. It requires an already working MelonLoader installation; it does not install a loader or configure online play.
 
-## Install (the easy way)
+## What the lobby adds
 
-1. Click the green **Code** button above and choose **Download ZIP**, then unzip it anywhere.
-2. Double-click **`install.bat`**.
+- A battlefield preview using the game's own loaded map-card artwork, with a fallback when unavailable.
+- Separate friendly and opposing force rosters, direct army selection and clear active/closed slots.
+- Match formats from 1v1 to 5v5 and manual uneven teams on supported dedicated skirmish maps.
+- Searchable map and army choices, team nation filters and named saved setups.
+- Native scripted AI army presets on the 22 audited v1.2.0 skirmish maps, alongside the original custom-deck option.
+- A native-inspired graphical layout, readable match summary and Normal as the balance-reference difficulty label.
 
-The installer finds your Broken Arrow install, **downloads and installs MelonLoader v0.7.3 for you** if it
-isn't already there, copies the mod into `Mods\`, writes `steam_appid.txt` + a Steam-aware launcher, and adds
-a **"Broken Arrow (Modded)"** desktop shortcut.
+Closing a bot changes its runtime activation; it does more than hide a card. Human and required scenario slots remain protected. Native scripted presets use the game's unit pools and orders. Custom-deck substitution follows the upstream extension's existing limitations, including behavior-dependent aircraft requests.
 
-**Make sure Steam is running and signed in**, then launch the game with that desktop shortcut (not the Steam
-Play button, which runs EasyAntiCheat and blocks mods), then click **Skirmish**.
+**This alpha improves setup and presentation. It does not implement a new AI commander or rebalance the native AI.** AI behavior experiments are developed separately, offline first; online support remains an investigation.
 
-> **Steam must be running.** The shortcut starts the game with anti-cheat off but still with a Steam context.
-> Without it (e.g. Steam closed, or launching the raw exe on a fresh install) the game hangs at the
-> "Loading Hangar" screen. The launcher makes sure Steam is up first.
->
-> The first modded launch is slower because MelonLoader sets itself up once. A black MelonLoader console
-> window opening alongside the game is normal.
+## Compatibility and alpha limits
 
-## How to use
+| Area | Status |
+|---|---|
+| Broken Arrow v1.2.0 / Windows x64 / MelonLoader 0.7.3 | Build and local test target |
+| v1.2.1, v1.2.2 and other game builds | Untested; no compatibility claim |
+| Existing offline loader and launcher | Required; preserved by this installer |
+| Online matchmaking, online skirmish and co-op | Unsupported by this release |
+| Campaign/PvE and Workshop scenarios | Outside alpha acceptance; authored setup and script limitations apply |
+| Resource parity, custom-deck air behavior and a new AI commander | Not provided |
 
-1. Launch modded (the "Broken Arrow (Modded)" shortcut).
-2. In the main menu, click **Skirmish**. A **Local AI Skirmish** setup panel opens.
-3. Choose your **map**, **deck**, **difficulty**, and any map-specific options (income, time limit,
-   day/night, map size), then **Start Battle**.
+Official updates have changed the engine and game systems since v1.2.0. Do not assume that a build targeting the old APIs works with newer versions. See the [official update announcements](https://steamcommunity.com/app/1604270/announcements/).
 
-On dedicated skirmish maps, **Your team** and **Opposing team** show the existing players side by
-side. Click the deck button directly on your human row or any configurable AI row. Each row keeps
-its own deck; there is no separate slot chooser. Extra rows/teams are paged when needed.
+This injected offline mod is not an official supported modding route. The developer's published guidance directs custom content toward the scenario editor; this project makes no online or anti-cheat safety guarantee. Review the [developer guidance](https://steamcommunity.com/app/1604270/discussions/0/599657527486041224/) before using mods.
 
-Use **ACTIVE/CLOSED** for no-player slots, or **Match format** for 1v1–5v5. AI army selectors offer
-native **AI preset** choices on verified built-in maps alongside custom decks. Closed slots keep their
-army for reopening. Human/required slots are protected; at least one opposing slot stays active.
+Read [alpha validation and known limits](docs/ALPHA-VALIDATION.md). Automated stand-ins do not run Unity or prove every map, army, resolution or full-match outcome.
 
-Each AI defaults to **Same as your deck**. The deck buttons open searchable lists, including saved
-custom decks. Create/edit custom decks in the game's deck builder before opening setup. The inspected
-built-in maps have your human row, four allied AI rows and five opposing AI rows. Team membership
-and AI numbers still come from the scenario. Built-in previews use the game's native map-card sprites;
-scenario preview files take precedence when available.
+## Feedback and development
 
-This UI fork remembers settings per scenario on map change, close and launch, with named presets.
-Restoring defaults resets AI choices to **Same as your deck**. These controls are only
-shown for dedicated skirmish maps; PvE scenarios and campaign missions keep their existing deck setup.
+Use [Issues](https://github.com/SGW296/broken-arrow-local-skirmish/issues) and include the mod/game/loader versions, map, army modes, match format, resolution and reproduction steps. Review logs for personal paths and player/deck names before sharing them. The included diagnostic collector saves reports locally and uploads nothing.
 
-v2.6.3 fixes duplicate hook registration in the mod. MelonLoader's automatic registration and the
-mod's manual registration were both running. The second load callback cleared the selected AI decks
-before any units spawned. Hooks are now registered only once.
+- [Installation, settings and rollback](docs/INSTALL-LOBBY.md)
+- [Build, checks and release packaging](docs/MODDING.md)
+- [Changelog](CHANGELOG.md)
+- [Lobby roadmap](PROJECT-ROADMAP.md)
 
-v2.6.2 replaces the scripted AI spawn lists with units from each AI's chosen deck. The built-in maps
-spawn their AI directly, bypassing the normal player deck system. Changing deck assignments alone did
-not change the AI's units in earlier versions.
+The full build requires your locally generated game and MelonLoader assemblies. They are not distributed here. Public CI runs managed fixtures; local release validation also compiles against the game and checks Harmony registration.
 
-The AI still follows the map's scripted wave timing and orders. Units are selected from the matching
-category in its chosen deck, with a preference for the same unit type and role. Selected upgrades,
-skins, and card transports are carried across. Categories missing from a deck are skipped. Deck card
-counts weight unit selection; they do not impose a finite inventory on the scripted waves.
+## Credits and licence
 
-You spawn in with your deck against the AI opponents (and any AI allies the scenario defines). Everything
-runs on your machine.
-
-## Reporting deck or spawn problems
-
-There is a report that individually selected AI decks still produce the human player's units in v2.6.3. This is under investigation. The managed regression checks pass, but they do not reproduce a live match and do not establish that this report is fixed.
-
-If you see this problem:
-
-1. Use the latest repository download, select clearly different decks for yourself and at least two AI players, and start a battle.
-2. After observing the problem, close the game and double-click **`collect-diagnostics.bat`** in the extracted download. Do this before launching the game again, because the next launch replaces the log.
-3. Open the new folder under `diagnostics`. Review and share `summary.txt`, `Latest.log`, and `deck-and-spawn-trace.txt` with your report. Include the map, AI player names and selected decks, and what units actually appeared. An unknown map does not prevent collecting the report.
-
-The collector records installed mod file hashes and copies the current MelonLoader log. It does not upload anything or change the game. Logs can include local folder paths and player/deck names. If the log is missing, the summary explains how to collect it after a modded launch.
-
-Infantry cards with a valid selected transport and a positive transport count are intended to spawn loaded into that transport. On-foot infantry is not automatically a game limitation. Include whether the affected cards have transports selected. Also report unusually slow vehicles, such as the M8 Thunderbolt; the cause is unconfirmed. The map controls orders and wave timing, while other installed mods may change unit data.
-
-## Pairs with the Balance Mod
-
-If you also install the [Balance Mod](https://github.com/BovineOverlord/broken-arrow-balance-mod), your
-rebalanced stats apply in these local battles. (The Balance Mod needs Local Skirmish to give it an offline
-battle to play in, so if you want custom stats, install both.)
-
-## Limits
-
-- **Offline only.** It does not create real online lobbies with a modded client.
-- **Which maps.** The panel lists dedicated **skirmish** maps first, followed by **PvE / co-op** scenarios
-  and **campaign** missions (including installed Workshop scenarios of these types). Skirmish maps are
-  marked `(skirmish)` and use the game's separate `ScenarioType.Skirmish` type; the built-in `*_Skirmish`
-  scenarios already define bot slots. Plain multiplayer **PvP** (`*_network`) scenarios remain excluded.
-  Map availability depends on your installed game version and content.
-- Difficulty and the map's options are honoured. Your first valid deck for the map is preselected, and you
-  can change it in the panel.
-
-## Uninstall
-
-Delete `Mods\BALocalSkirmish.dll`. To remove the loader entirely, delete `version.dll` and the
-`MelonLoader\` folder from the game directory.
-
-## Build it yourself / extend it
-
-See **[docs/MODDING.md](docs/MODDING.md)** for how to compile from source.
-
-## License
-
-[MIT](LICENSE), 2026 BovineOverlord. Provided as-is, with no warranty. Use at your own risk; you are
-responsible for complying with the game's own terms of service.
+Original Local Skirmish mod: **BovineOverlord**. Lobby fork and public-alpha work: **SGW296**.
+The original MIT notice is preserved in [LICENSE](LICENSE). No extracted game maps, textures, fonts or game assemblies are included in release packages; previews and styling borrow assets already loaded by the user's game.

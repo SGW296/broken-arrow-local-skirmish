@@ -62,9 +62,9 @@ namespace BALocalSkirmish
         {
             if (index < 0 || index >= _aiSlots.Count) return;
             var slot = _aiSlots[index];
-            var choices = new List<Choice> { new Choice(0, "AI player", "Activate this slot with its selected army.") };
+            var choices = new List<Choice> { new Choice(0, "AI player", "Activate this slot with its selected army.", !slot.Closed) };
             if (!slot.Mandatory)
-                choices.Add(new Choice(1, "Closed — no player", "No AI occupies this slot. Its deck is kept for later."));
+                choices.Add(new Choice(1, "Closed — no player", "No AI occupies this slot. Its deck is kept for later.", slot.Closed));
             OpenPicker("Slot — " + slot.Name, choices, value =>
             {
                 if (!_aiSlots.Contains(slot)) return;
@@ -125,10 +125,10 @@ namespace BALocalSkirmish
         {
             if (side != 0 && side != 1) return;
             var profiles = NativeAiProfiles.GetAvailable(_maps[_mapIdx]);
-            var choices = new List<Choice> { new Choice(0, "Any nation", "Allow any available scenario deck, including mirror matches.") };
+            var choices = new List<Choice> { new Choice(0, "Any nation", "Allow any available scenario deck, including mirror matches.", TeamCountry(side) == 0) };
             for (int country = 1; country <= 2; country++)
                 if (_decks.Exists(d => d.CountryID == country) || (side == 1 && profiles.Exists(p => p.CountryId == country)))
-                    choices.Add(new Choice(country, CountryName(country), "Restrict this team to available decks from this nation."));
+                    choices.Add(new Choice(country, CountryName(country), "Restrict this team to available decks from this nation.", TeamCountry(side) == country));
             OpenPicker("Team nation", choices, country =>
             {
                 int first = country == 0 ? -1 : _decks.FindIndex(d => d.CountryID == country);

@@ -39,7 +39,13 @@ namespace BALocalSkirmish
         readonly Dictionary<int, int> _teamCountries = new Dictionary<int, int>();
         static ScenarioType TypeOf(ScenarioSource value) => value.Type;
         bool IsSkirmishMap() => _mapIdx >= 0 && _mapIdx < _maps.Count && TypeOf(_maps[_mapIdx]) == ScenarioType.Skirmish;
-        sealed class Choice { public int Value; public Choice(int value, string label, string detail) { Value = value; } }
+        sealed class Choice
+        {
+            public int Value;
+            public bool IsCurrent;
+            public Choice(int value, string label, string detail, bool isCurrent = false)
+            { Value = value; IsCurrent = isCurrent; }
+        }
         List<Choice> _choices;
         Action<int> _picked;
         void OpenPicker(string title, List<Choice> choices, Action<int> picked) { _choices = choices; _picked = picked; }
@@ -99,13 +105,34 @@ namespace BALocalSkirmish
             Check(roster[0].Entries[1].AiIndex == -1 && roster[0].Entries[2].AiIndex == 0,
                 "Read-only duplicate UID hid the later configurable AI row");
             Check(roster[1].Entries[0].AiIndex == 1, "Opponent row deck control bound to the wrong slot");
+            Check(c.ActiveRosterCount(roster[0]) == 2 && c.ActiveRosterCount(roster[1]) == 1,
+                "Active player count included a non-configurable duplicate identity");
+            Check(c.ScenarioRosterCount(roster[0]) == 1 && c.ClosedRosterCount(roster[0]) == 0,
+                "Scenario-controlled rows were presented as closed AI slots");
+            c._aiSlots[0].Closed = true;
+            Check(c.ActiveRosterCount(roster[0]) == 1 && c.ClosedRosterCount(roster[0]) == 1,
+                "Closing an AI did not change active/closed presentation counts");
+            Check(c.MatchRosterSummary(roster).Contains("2 configured players") && c.MatchRosterSummary(roster).Contains("1 scenario-controlled"),
+                "Custom roster summary silently treated scenario rows as a known match format");
+            var standard = c.ReadRoster(); standard[0].Entries.RemoveAt(1);
+            Check(c.MatchRosterSummary(standard).StartsWith("1 vs 1") && c.MatchRosterSummary(standard).Contains("1 human + 1 AI"),
+                "1v1 summary counted retained closed identities as active participants");
+            c._aiSlots[0].Closed = false;
+            Check(c.MatchRosterSummary(standard).StartsWith("2 vs 1"), "Asymmetric setup was presented as an even match");
+            Check(c.ActiveRosterCount(null) == 0 && c.ClosedRosterCount(null) == 0 && c.ScenarioRosterCount(null) == 0,
+                "Unavailable roster counts were fabricated");
+            Check(c.MatchRosterSummary(null) == "Scenario-controlled roster", "Unavailable roster summary assumed a human-versus-AI format");
             c.PickDeckForSlot(1);
             Check(c._choices.Count == 3 && c._choices[0].Value == -1, "AI row must offer same-as-player plus available decks");
+            Check(c._choices.FindAll(choice => choice.IsCurrent).Count == 1 && c._choices.Find(choice => choice.IsCurrent).Value == -1,
+                "AI picker did not identify its current same-as-player choice");
             c._aiSlots.Reverse(); c._picked(0);
             Check(c._aiSlots.Find(s => s.PlayerUid == 5).DeckIndex == 0 && c._aiSlots.Find(s => s.PlayerUid == 3).DeckIndex == 1,
                 "Deck picker rebound to another slot when list order changed");
             c._aiSlots.Reverse(); c._aiSlots[1].DeckIndex = -1;
             c.PickDeckForSlot(-1); Check(c._choices.Count == 2, "Human row must not offer same-as-player");
+            Check(c._choices.FindAll(choice => choice.IsCurrent).Count == 1 && c._choices.Find(choice => choice.IsCurrent).Value == 0,
+                "Human picker current marker followed an AI selection");
             c._picked(1); Check(c._deckIdx == 1 && c._aiSlots[1].DeckIndex == -1, "Human row changed an AI deck"); c._deckIdx = 0;
             c.PickDeckForSlot(1); var removed = c._aiSlots[1]; c._aiSlots.Remove(removed); c._picked(1);
             Check(removed.DeckIndex == -1 && c._deckIdx == 0, "Stale AI row modified a removed slot or the human deck");

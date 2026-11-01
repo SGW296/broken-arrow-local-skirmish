@@ -30,6 +30,10 @@ namespace BALocalSkirmish
                 "Native profile choice changed another AI slot");
             c._aiSlots.Reverse();
             Check(c.GetLaunchProblem() == null && c.NativeProfile(0)?.CountryId == 1, "Available native ID zero should be launchable");
+            c.PickDeckForSlot(0);
+            Check(c._choices.FindAll(choice => choice.IsCurrent).Count == 1
+                && c._choices.Find(choice => choice.IsCurrent).Value == -1000,
+                "Current army marker used the retained custom fallback instead of active native ID zero");
             c.PickDeckForSlot(-1);
             Check(c._choices.Count == 3 && c._choices.TrueForAll(choice => choice.Value >= 0),
                 "Human deck picker offered native AI profiles");

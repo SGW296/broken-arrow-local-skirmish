@@ -1,0 +1,45 @@
+name: Lobby bug
+description: Report an offline lobby, setup or installation problem.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This alpha targets v1.2.0 offline. Online play and experimental AI behavior are outside this release.
+        Logs are optional. Review local paths and player/deck names before sharing them; never attach game assemblies or extracted assets.
+  - type: input
+    id: versions
+    attributes:
+      label: Mod, game and MelonLoader versions
+      placeholder: '3.1.0-alpha.1 / Broken Arrow 1.2.0 / MelonLoader 0.7.3'
+    validations:
+      required: true
+  - type: input
+    id: display
+    attributes:
+      label: Resolution and display/UI scale
+      placeholder: '2560×1440, Windows 100%'
+  - type: textarea
+    id: setup
+    attributes:
+      label: Map and setup
+      description: Include match format, active/closed slots, native preset or custom-deck mode, and other mods.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: What did you select or change before the problem happened?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Optional screenshots or reviewed log excerpts
+      description: Collect Latest.log before another launch replaces it. Nothing is uploaded automatically by the collector.

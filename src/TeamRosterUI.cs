@@ -10,12 +10,66 @@ namespace BALocalSkirmish
     {
         int _teamPage, _rosterPage;
         readonly List<RosterDeckLabel> _rosterDeckLabels = new List<RosterDeckLabel>();
+        readonly List<RosterTeamLabel> _rosterTeamLabels = new List<RosterTeamLabel>();
+        sealed class RosterTeamLabel
+        {
+            public RosterTeam Team;
+            public Text Active, Other;
+        }
         sealed class RosterDeckLabel
         {
             public RosterEntry Slot;
-            public Text Label, StateLabel, NameLabel, NationLabel, AvatarFallback;
+            public Text Label, StateLabel, NameLabel, NationLabel, AvatarFallback, RoleLabel, ArmyKindLabel;
             public Button Button;
             public Image Background, Stripe, Avatar, Spec1, Spec2;
+        }
+
+        int ActiveRosterCount(RosterTeam team)
+        {
+            int count = 0;
+            if (team?.Entries == null) return count;
+            foreach (var row in team.Entries)
+                if (row.IsHuman || (row.AiIndex >= 0 && row.AiIndex < _aiSlots.Count && !_aiSlots[row.AiIndex].Closed)) count++;
+            return count;
+        }
+
+        int ClosedRosterCount(RosterTeam team)
+        {
+            int count = 0;
+            if (team?.Entries == null) return count;
+            foreach (var row in team.Entries)
+                if (!row.IsHuman && row.AiIndex >= 0 && row.AiIndex < _aiSlots.Count && _aiSlots[row.AiIndex].Closed) count++;
+            return count;
+        }
+
+        int ScenarioRosterCount(RosterTeam team)
+        {
+            int count = 0;
+            if (team?.Entries == null) return count;
+            foreach (var row in team.Entries)
+                if (!row.IsHuman && (row.AiIndex < 0 || row.AiIndex >= _aiSlots.Count)) count++;
+            return count;
+        }
+
+        string MatchRosterSummary(List<RosterTeam> teams)
+        {
+            int humans = 0, ai = 0, closed = 0, scenario = 0;
+            RosterTeam alpha = null, bravo = null;
+            if (teams == null) return "Scenario-controlled roster";
+            foreach (var team in teams)
+            {
+                if (team.TeamSide == 0) alpha = team;
+                if (team.TeamSide == 1) bravo = team;
+                closed += ClosedRosterCount(team); scenario += ScenarioRosterCount(team);
+                foreach (var row in team.Entries)
+                    if (row.IsHuman) humans++;
+                    else if (row.AiIndex >= 0 && row.AiIndex < _aiSlots.Count && !_aiSlots[row.AiIndex].Closed) ai++;
+            }
+            string format = teams.Count == 2 && alpha != null && bravo != null && scenario == 0
+                ? ActiveRosterCount(alpha) + " vs " + ActiveRosterCount(bravo)
+                : (humans + ai) + " configured players";
+            return format + "  ·  " + humans + (humans == 1 ? " human" : " humans") + " + " + ai + " AI"
+                + "  ·  " + closed + " closed" + (scenario > 0 ? "  ·  " + scenario + " scenario-controlled" : "");
         }
 
         List<RosterTeam> ReadRoster()
@@ -101,6 +155,7 @@ namespace BALocalSkirmish
             RosterSurface(panel, -624, 180, 362, 180, _skin.Divider);
             _previewImg = MakeImage(panel, -624, 180, 360, 178, _skin.Background);
             _previewImg.raycastTarget = false;
+            _previewEmpty = MakeLabel(panel, -624, 180, 330, 84, "MAP PREVIEW", 18, TextAnchor.MiddleCenter, _skin.MutedText);
             _previewCaption = MakeLabel(panel, -624, 77, 360, 26, "", 14, TextAnchor.MiddleLeft, _skin.MutedText);
 
             RosterHeading(panel, -624, 42, 360, 26, "MATCH SETTINGS", 17, _skin.Text);
@@ -112,7 +167,7 @@ namespace BALocalSkirmish
             }
             if (_hasDiff) _diffLabel = SettingRow("Difficulty", 4, () =>
             {
-                OpenPicker("Scenario difficulty", new List<Choice> { new Choice(1, "Easy"), new Choice(2, "Normal", "Balance reference; maps to the game's Medium difficulty."), new Choice(3, "Hard") }, value => { _diff = value; UpdateLabels(); });
+                OpenPicker("Scenario difficulty", new List<Choice> { new Choice(1, "Easy", "", _diff == 1), new Choice(2, "Normal", "Balance reference; maps to the game's Medium difficulty.", _diff == 2), new Choice(3, "Hard", "", _diff == 3) }, value => { _diff = value; UpdateLabels(); });
             });
             else MakeLabel(panel, -624, 4, 360, 34, "Difficulty controlled by scenario", 15, TextAnchor.MiddleLeft, _skin.MutedText);
             int optionPages = Math.Max(1, (_opts.Count + 3) / 4);
@@ -131,8 +186,8 @@ namespace BALocalSkirmish
                 MakeButton(panel, -490, -200, 92, 28, "Next", () => { _optionPage++; BuildUI(); }, _skin.Control, 13).interactable = _optionPage + 1 < optionPages;
             }
             RosterSurface(panel, -624, -234, 360, 1, _skin.Divider);
-            MakeLabel(panel, -624, -275, 360, 62, "Choose each player's deck on their card.\nClose optional slots for smaller teams.", 16, TextAnchor.UpperLeft, _skin.MutedText);
-            MakeLabel(panel, -624, -319, 360, 30, "AI timing and orders come from the scenario.", 13, TextAnchor.MiddleLeft, _skin.MutedText);
+            MakeLabel(panel, -624, -275, 360, 62, "Choose an army on each active player card.\nUse Match format for a smaller battle.", 16, TextAnchor.UpperLeft, _skin.MutedText);
+            MakeLabel(panel, -624, -319, 360, 30, "Native AI presets use the scenario's armies.", 13, TextAnchor.MiddleLeft, _skin.MutedText);
 
             var teams = ReadRoster();
             int teamPages = Math.Max(1, (teams.Count + 1) / 2);
@@ -207,7 +262,9 @@ namespace BALocalSkirmish
                 friendly ? "FRIENDLY FORCES" : team.TeamSide == 1 ? "OPPOSING FORCES" : "SCENARIO FORCES", 23, _skin.Text);
             title.resizeTextForBestFit = true; title.resizeTextMinSize = 17; title.resizeTextMaxSize = 23;
             MakeLabel(panel, x - 54, 335, 380, 20, team.Name, 14, TextAnchor.MiddleLeft, _skin.Text);
-            MakeLabel(panel, x + 238, 352, 100, 32, team.Entries.Count + " SLOTS", 15, TextAnchor.MiddleCenter, _skin.Text);
+            var activeCount = MakeLabel(panel, x + 238, 360, 100, 24, "", 15, TextAnchor.MiddleCenter, _skin.Text);
+            var otherCount = MakeLabel(panel, x + 238, 337, 100, 18, "", 11, TextAnchor.MiddleCenter, _skin.MutedText);
+            _rosterTeamLabels.Add(new RosterTeamLabel { Team = team, Active = activeCount, Other = otherCount });
             var nation = DeckButton(panel, x, 306, 600, () => PickTeamCountry(team.TeamSide));
             nation.text = "Nation  ·  " + TeamCountryText(team.TeamSide);
             nation.transform.parent.gameObject.GetComponent<Button>().interactable = team.TeamSide == 0 || team.TeamSide == 1;
@@ -230,7 +287,7 @@ namespace BALocalSkirmish
                 avatar.preserveAspect = true;
                 Text avatarFallback = portrait == null
                     ? MakeLabel(panel, x - 248, y + 4, 64, 40, entry.IsHuman ? "YOU" : entry.AiIndex >= 0 ? "AI" : "—", 22, TextAnchor.MiddleCenter, _skin.MutedText) : null;
-                MakeLabel(panel, x - 248, y - 41, 84, 18, entry.IsHuman ? "PLAYER" : entry.AiIndex >= 0 ? "AI BOT" : "SCRIPTED", 11, TextAnchor.MiddleCenter, _skin.MutedText);
+                var role = MakeLabel(panel, x - 248, y - 41, 84, 18, entry.IsHuman ? "PLAYER" : entry.AiIndex >= 0 ? "AI BOT" : "SCENARIO", 11, TextAnchor.MiddleCenter, _skin.MutedText);
                 var name = MakeLabel(panel, x - 16, y + 25, 320, 28, entry.IsHuman ? "You" : entry.Name, 20, TextAnchor.MiddleLeft, _skin.Text);
                 name.resizeTextForBestFit = true; name.resizeTextMinSize = 15; name.resizeTextMaxSize = 20;
                 if (entry.IsHuman || entry.AiIndex >= 0)
@@ -245,13 +302,14 @@ namespace BALocalSkirmish
                         stateButton.interactable = !_aiSlots[entry.AiIndex].Mandatory;
                         _rosterDeckLabels.Add(new RosterDeckLabel { Slot = entry, Label = label,
                             StateLabel = state, Button = deckButton, NameLabel = name, Background = surface, Stripe = stripe,
-                            Avatar = avatar, AvatarFallback = avatarFallback,
+                            Avatar = avatar, AvatarFallback = avatarFallback, RoleLabel = role,
+                            ArmyKindLabel = MakeLabel(panel, x - 38, y - 40, 320, 17, "", 11, TextAnchor.MiddleLeft, _skin.MutedText),
                             NationLabel = MakeLabel(panel, x + 158, y - 40, 116, 17, "", 11, TextAnchor.MiddleRight, _skin.MutedText),
                             Spec1 = RosterSurface(panel, x + 236, y - 40, 18, 18, Color.clear),
                             Spec2 = RosterSurface(panel, x + 264, y - 40, 18, 18, Color.clear) });
                     }
                     if (entry.IsHuman) MakeLabel(panel, x + 220, y + 25, 124, 28, "HUMAN", 13, TextAnchor.MiddleCenter, accent);
-                    MakeLabel(panel, x - 38, y - 40, 320, 17, entry.IsHuman ? "BATTLEGROUP / DECK" : "ARMY / AI PRESET", 11, TextAnchor.MiddleLeft, _skin.MutedText);
+                    if (entry.IsHuman) MakeLabel(panel, x - 38, y - 40, 320, 17, "YOUR BATTLEGROUP", 11, TextAnchor.MiddleLeft, _skin.MutedText);
                 }
                 else
                 {
@@ -271,6 +329,12 @@ namespace BALocalSkirmish
         void RefreshRosterPresentation()
         {
             if (_skin == null) return;
+            foreach (var view in _rosterTeamLabels)
+            {
+                int scripted = ScenarioRosterCount(view.Team);
+                view.Active.text = ActiveRosterCount(view.Team) + " ACTIVE";
+                view.Other.text = scripted > 0 ? scripted + " SCENARIO" : ClosedRosterCount(view.Team) + " CLOSED";
+            }
             foreach (var view in _rosterDeckLabels)
             {
                 if (view.Slot.AiIndex < 0 || view.Slot.AiIndex >= _aiSlots.Count) continue;
@@ -282,15 +346,19 @@ namespace BALocalSkirmish
                 if (view.Avatar != null)
                 {
                     view.Avatar.sprite = profile?.Avatar ?? _skin.BotAvatar;
-                    view.Avatar.color = view.Avatar.sprite != null ? Color.white : Color.clear;
-                    if (view.AvatarFallback != null) view.AvatarFallback.text = view.Avatar.sprite == null ? "AI" : "";
+                    view.Avatar.color = view.Avatar.sprite != null ? new Color(1f, 1f, 1f, slot.Closed ? 0.3f : 1f) : Color.clear;
+                    if (view.AvatarFallback != null) view.AvatarFallback.text = view.Avatar.sprite == null ? slot.Closed ? "—" : "AI" : "";
                 }
-                if (view.Spec1 != null) { view.Spec1.sprite = profile?.Spec1Preview; view.Spec1.color = view.Spec1.sprite != null ? Color.white : Color.clear; }
-                if (view.Spec2 != null) { view.Spec2.sprite = profile?.Spec2Preview; view.Spec2.color = view.Spec2.sprite != null ? Color.white : Color.clear; }
+                if (view.Spec1 != null) { view.Spec1.sprite = profile?.Spec1Preview; view.Spec1.color = view.Spec1.sprite != null ? new Color(1f, 1f, 1f, slot.Closed ? 0.3f : 1f) : Color.clear; }
+                if (view.Spec2 != null) { view.Spec2.sprite = profile?.Spec2Preview; view.Spec2.color = view.Spec2.sprite != null ? new Color(1f, 1f, 1f, slot.Closed ? 0.3f : 1f) : Color.clear; }
                 if (view.Label != null) view.Label.text = slot.NativePresetId >= 0
                     ? "AI preset · " + (profile?.Name ?? "Unavailable")
-                    : index >= 0 && index < _deckNames.Count ? LobbyText.DeckName(_deckNames[index]) : "Same as your deck";
-                if (view.StateLabel != null) view.StateLabel.text = slot.Mandatory ? "REQUIRED" : slot.Closed ? "CLOSED  ▾" : "ACTIVE  ▾";
+                    : index >= 0 && index < _deckNames.Count ? "Deck · " + LobbyText.DeckName(_deckNames[index])
+                    : "Your deck · " + (_deckIdx >= 0 && _deckIdx < _deckNames.Count ? LobbyText.DeckName(_deckNames[_deckIdx]) : "Unavailable");
+                if (view.StateLabel != null) view.StateLabel.text = slot.Mandatory ? "REQUIRED" : slot.Closed ? "CLOSED  ▾" : "AI PLAYER  ▾";
+                if (view.RoleLabel != null) view.RoleLabel.text = slot.Closed ? "NO PLAYER" : "AI BOT";
+                if (view.ArmyKindLabel != null) view.ArmyKindLabel.text = slot.Closed ? "ARMY SAVED FOR REOPENING"
+                    : slot.NativePresetId >= 0 ? "NATIVE SCRIPTED ARMY" : "CUSTOM DECK · SCENARIO AI";
                 if (view.Button != null) view.Button.interactable = !slot.Closed;
                 if (view.NameLabel != null) view.NameLabel.color = slot.Closed ? _skin.MutedText : _skin.Text;
                 if (view.Label != null) view.Label.color = slot.Closed ? _skin.MutedText : _skin.Text;

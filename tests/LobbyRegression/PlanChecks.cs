@@ -63,10 +63,15 @@ namespace BALocalSkirmish
             c.PickSlotState(0);
             Check(c._choices.Count == 2 && c._choices[0].Value == 0 && c._choices[1].Value == 1,
                 "Optional slot picker must expose active/closed");
+            Check(c._choices.FindAll(choice => choice.IsCurrent).Count == 1 && c._choices[0].IsCurrent,
+                "Active optional slot was not marked as the current state");
             Check(c.PlanSignature() == original, "Opening/cancelling slot picker changed the plan");
             c._aiSlots[0].DeckIndex = 2; c._picked(1);
             Check(c._aiSlots[0].Closed && c._aiSlots[0].DeckIndex == 2 && c.ActiveCount(0) == 4,
                 "Closing optional ally must retain its army and remove it from active count");
+            c.PickSlotState(0);
+            Check(c._choices.FindAll(choice => choice.IsCurrent).Count == 1 && c._choices[1].IsCurrent,
+                "Closed slot picker marked the retained AI army as an active player");
             c.ChooseSlot(0, false);
             Check(!c._aiSlots[0].Closed && c._aiSlots[0].DeckIndex == 2, "Reopening ally lost retained deck");
             var choices = c._choices; c.PickSlotState(-1);
@@ -119,10 +124,15 @@ namespace BALocalSkirmish
 
             c = PlanFixture(root); original = c.PlanSignature(); c.PickTeamCountry(1);
             Check(c._choices.Count == 3, "Team nation picker must offer any plus installed RU/US decks");
+            Check(c._choices.FindAll(choice => choice.IsCurrent).Count == 1 && c._choices.Find(choice => choice.IsCurrent).Value == 0,
+                "Unfiltered nation picker did not mark Any nation");
             Check(c.PlanSignature() == original, "Opening/cancelling nation picker changed deck assignments");
             c._picked(2);
             Check(c.TeamCountry(1) == 2 && c._deckIdx == 0 && c._aiSlots.FindAll(slot => slot.TeamSide == 1).TrueForAll(slot => slot.DeckIndex == 1),
                 "Opposing nation filter failed to replace incompatible decks or changed human army");
+            c.PickTeamCountry(1);
+            Check(c._choices.FindAll(choice => choice.IsCurrent).Count == 1 && c._choices.Find(choice => choice.IsCurrent).Value == 2,
+                "Nation picker current marker followed the human nation instead of the chosen team");
             int enemy = c._aiSlots.FindIndex(slot => slot.TeamSide == 1);
             c.PickDeckForSlot(enemy);
             Check(c._choices.Count == 1 && c._choices[0].Value == 1, "Nation-filtered AI picker exposed incompatible or same-as-human army");

@@ -1,182 +1,127 @@
-#Requires -Version 5
+#Requires -Version 5.1
 <#
-  BA Local Skirmish - one-click installer for Broken Arrow
-  --------------------------------------------------------------------------
-  What it does:
-    1. Finds your Broken Arrow install (Steam libraries, common paths, or asks)
-    2. Installs MelonLoader v0.7.3 (IL2CPP) into the game folder if it isn't
-       already there - downloaded straight from the official MelonLoader release
-    3. Copies the mod into  <game>\Mods\
-    4. Writes steam_appid.txt + a Steam-aware launcher, and creates a
-       "Broken Arrow (Modded)" desktop shortcut that launches the game WITHOUT
-       EasyAntiCheat (required for mods) but WITH a Steam context (so it doesn't
-       hang at "Loading Hangar")
-
-  Offline / single-player only. It does not touch or enable online multiplayer.
-  Usage:
-    Double-click install.bat  (recommended), or from PowerShell:
-    powershell -ExecutionPolicy Bypass -File install.ps1 [-GameDir "D:\path\to\Broken Arrow"] [-ReinstallMelon] [-NoShortcut]
+Installs the public-alpha DLL into an existing offline MelonLoader setup.
+The release ZIP supplies BALocalSkirmish.dll and manifest.json beside this script.
+This script does not install a loader, edit game assets, or change launch shortcuts.
 #>
 [CmdletBinding()]
 param(
-  [string]$GameDir,
-  [switch]$ReinstallMelon,
-  [switch]$NoShortcut
+    [string]$GameDir,
+    [string]$BackupRoot,
+    [switch]$NonInteractive
 )
-
 $ErrorActionPreference = 'Stop'
-try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
+. (Join-Path $PSScriptRoot 'scripts\Find-BrokenArrow.ps1')
 
-# ---------- per-mod config ----------
-$ModName       = 'BA Local Skirmish'
-$ModDll        = 'BALocalSkirmish.dll'
-$SeedOverrides = $false
-$MelonVersion  = 'v0.7.3'
-$MelonUrl      = "https://github.com/LavaGang/MelonLoader/releases/download/$MelonVersion/MelonLoader.x64.zip"
-
-$Here = Split-Path -Parent $MyInvocation.MyCommand.Path
-function Info($m){ Write-Host "[*]  $m" -ForegroundColor Cyan }
-function Ok($m){   Write-Host "[OK] $m" -ForegroundColor Green }
-function Warn($m){ Write-Host "[!]  $m" -ForegroundColor Yellow }
-function Die($m){  Write-Host "[X]  $m" -ForegroundColor Red; Write-Host ''; Read-Host 'Press Enter to close'; exit 1 }
-function Test-GameDir($d){ if (-not $d) { return $false }; return [bool](Test-Path -LiteralPath ("$d\BrokenArrow.exe") -ErrorAction SilentlyContinue) }
-
-function Find-Game {
-  if (Test-GameDir $GameDir) { return (Resolve-Path $GameDir).Path }
-  foreach($c in @($Here, (Split-Path $Here -Parent))){ if(Test-GameDir $c){ return $c } }
-  try {
-    $steam = (Get-ItemProperty 'HKCU:\Software\Valve\Steam' -ErrorAction Stop).SteamPath
-    if ($steam) {
-      $vdf = Join-Path $steam 'steamapps\libraryfolders.vdf'
-      $libs = @($steam)
-      if (Test-Path $vdf) {
-        Select-String -Path $vdf -Pattern '"path"\s+"([^"]+)"' | ForEach-Object {
-          $libs += ($_.Matches[0].Groups[1].Value -replace '\\\\','\')
-        }
-      }
-      foreach($lib in $libs){
-        $cand = Join-Path $lib 'steamapps\common\Broken Arrow'
-        if (Test-GameDir $cand){ return $cand }
-      }
+function Require-GameClosed {
+    if (Get-Process -Name BrokenArrow -ErrorAction SilentlyContinue) {
+        throw 'Close Broken Arrow before installing. No mod files have been replaced.'
     }
-  } catch {}
-  foreach($c in @(
-    'C:\Program Files (x86)\Steam\steamapps\common\Broken Arrow',
-    'C:\Program Files\Steam\steamapps\common\Broken Arrow',
-    'D:\Steam\steamapps\common\Broken Arrow',
-    'D:\SteamLibrary\steamapps\common\Broken Arrow',
-    'E:\SteamLibrary\steamapps\common\Broken Arrow',
-    'D:\Games\Broken Arrow')){
-    if (Test-GameDir $c){ return $c }
-  }
-  Warn "Couldn't find Broken Arrow automatically."
-  $inp = Read-Host 'Paste the full path to your Broken Arrow folder (contains BrokenArrow.exe)'
-  if (Test-GameDir $inp){ return (Resolve-Path $inp).Path }
-  return $null
 }
 
-Write-Host ''
-Write-Host "=== $ModName installer ===" -ForegroundColor White
-$game = Find-Game
-if (-not (Test-GameDir $game)) { Die "Broken Arrow not found. Re-run and paste the folder that contains BrokenArrow.exe." }
-Ok "Game folder: $game"
-
-# ---------- MelonLoader ----------
-$mlDll = Join-Path $game 'MelonLoader\net6\MelonLoader.dll'
-if ($ReinstallMelon -or -not (Test-Path $mlDll)) {
-  Info "Installing MelonLoader $MelonVersion (IL2CPP) ..."
-  $zip = Join-Path $env:TEMP ("MelonLoader.x64." + $MelonVersion + ".zip")
-  try { Invoke-WebRequest -Uri $MelonUrl -OutFile $zip -UseBasicParsing }
-  catch { Die ("MelonLoader download failed: " + $_.Exception.Message + "`nURL: " + $MelonUrl) }
-  Info "Extracting into the game folder ..."
-  Expand-Archive -Path $zip -DestinationPath $game -Force
-  Remove-Item $zip -ErrorAction SilentlyContinue
-  if (Test-Path $mlDll){ Ok "MelonLoader installed." } else { Die "MelonLoader did not extract correctly (missing $mlDll)." }
-} else {
-  Ok "MelonLoader already present - skipping."
+function Assert-PackageFiles([string]$Root, $Manifest) {
+    if ($Manifest.SchemaVersion -ne 1 -or [string]::IsNullOrWhiteSpace($Manifest.Version)) {
+        throw 'The release manifest is missing or unsupported. Download a complete release ZIP.'
+    }
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    foreach ($file in $Manifest.Files) {
+        $relative = [string]$file.Path
+        if ([string]::IsNullOrWhiteSpace($relative) -or [IO.Path]::IsPathRooted($relative) -or
+            $relative -match '(^|[\\/])\.\.([\\/]|$)' -or $relative.Contains(':') -or
+            -not $seen.Add($relative.Replace('/', '\'))) {
+            throw 'The release manifest contains an invalid or duplicate file path.'
+        }
+        $path = [IO.Path]::GetFullPath((Join-Path $Root $relative))
+        $prefix = [IO.Path]::GetFullPath($Root).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+        if (-not $path.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -or
+            -not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            throw ('A release file is missing: ' + $relative + '. Extract the entire ZIP first.')
+        }
+        if ($file.SHA256 -notmatch '^[0-9A-Fa-f]{64}$' -or
+            (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne $file.SHA256) {
+            throw ('Release file verification failed: ' + $relative + '. Download a fresh release ZIP.')
+        }
+    }
+    if (-not $seen.Contains('BALocalSkirmish.dll')) { throw 'The release manifest does not include BALocalSkirmish.dll.' }
 }
 
-# ---------- the mod ----------
-$mods = Join-Path $game 'Mods'
-New-Item -ItemType Directory -Force -Path $mods | Out-Null
-$src = Join-Path $Here ("dist\" + $ModDll)
-if (-not (Test-Path $src)) { Die "Can't find $src . Run this from inside the extracted repo folder (it needs the dist\ folder next to it)." }
-Copy-Item $src (Join-Path $mods $ModDll) -Force
-Ok "Installed $ModDll into Mods\"
-
-if ($SeedOverrides) {
-  $bamod = Join-Path $game '_BAMod'
-  New-Item -ItemType Directory -Force -Path $bamod | Out-Null
-  $ov = Join-Path $bamod 'overrides.json'
-  if (-not (Test-Path $ov)) {
-    Copy-Item (Join-Path $Here 'dist\overrides.example.json') $ov -Force
-    Ok "Created _BAMod\overrides.json  (this is the file you edit to change stats)."
-  } else {
-    Warn "_BAMod\overrides.json already exists - left your version untouched."
-  }
+$source = Join-Path $PSScriptRoot 'BALocalSkirmish.dll'
+$manifestPath = Join-Path $PSScriptRoot 'manifest.json'
+if (-not (Test-Path -LiteralPath $source -PathType Leaf) -or -not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+    throw 'This is a source checkout, not an installable release. Download and extract the public-alpha release ZIP, or build and package the source first. The old dist DLL is not installed.'
 }
-
-# ---------- Steam context + modded launcher (fixes the "Loading Hangar" hang) ----------
-# Launching BrokenArrow.exe directly (outside a running Steam client) gives the game no Steam
-# context, so its online init blocks forever at the "Loading Hangar" screen (freeze/crash). steam_appid.txt
-# supplies the app id for a non-Steam launch, and the launcher below makes sure the Steam client
-# is running first - so the game boots with EasyAntiCheat off instead of hanging.
+$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+Assert-PackageFiles $PSScriptRoot $manifest
+Require-GameClosed
+$gameRoot = Find-BrokenArrow -ExplicitPath $GameDir -PackageRoot $PSScriptRoot -NonInteractive:$NonInteractive
+if (-not (Test-Path -LiteralPath (Join-Path $gameRoot 'MelonLoader\net6\MelonLoader.dll') -PathType Leaf)) {
+    throw 'An existing compatible MelonLoader setup is required. This update does not install or replace MelonLoader. See the release README.'
+}
+$unityVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $gameRoot 'BrokenArrow.exe')).ProductVersion
+if ([string]::IsNullOrWhiteSpace($unityVersion) -or $unityVersion -notmatch '^2022\.3\.62f3(?:\s|$)') {
+    throw 'This alpha targets Broken Arrow v1.2.0 with Unity 2022.3.62f3. The executable has a different or unknown Unity version; installation stopped. Newer game builds require separate compatibility testing.'
+}
+$latestLog = Join-Path $gameRoot 'MelonLoader\Latest.log'
+if (Test-Path -LiteralPath $latestLog -PathType Leaf) {
+    $versionLine = Select-String -LiteralPath $latestLog -Pattern 'Game Version:\s*([^\s]+)' | Select-Object -First 1
+    if ($versionLine -and $versionLine.Matches[0].Groups[1].Value -ne '1.2.0') {
+        throw 'The latest MelonLoader log identifies a game version other than supported v1.2.0. Installation stopped; use a release tested for that game version.'
+    }
+}
+$mods = Join-Path $gameRoot 'Mods'
+$destination = Join-Path $mods 'BALocalSkirmish.dll'
+$settings = Join-Path $gameRoot 'UserData\BALocalSkirmish\lobby.json'
+if ([string]::IsNullOrWhiteSpace($BackupRoot)) {
+    $BackupRoot = Join-Path $gameRoot 'UserData\BALocalSkirmish\Backups'
+}
+$backupBase = [IO.Path]::GetFullPath($BackupRoot)
+$modsFull = [IO.Path]::GetFullPath($mods).TrimEnd('\', '/')
+if ($backupBase.Equals($modsFull, [StringComparison]::OrdinalIgnoreCase) -or
+    $backupBase.StartsWith($modsFull + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw 'Choose a backup folder outside Mods so MelonLoader cannot load backup DLLs.'
+}
+$backup = Join-Path $backupBase ([DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+New-Item -ItemType Directory -Path $backup -Force | Out-Null
+$hadMod = Test-Path -LiteralPath $destination -PathType Leaf
+$hadSettings = Test-Path -LiteralPath $settings -PathType Leaf
+$oldHash = $null; $settingsHash = $null
+if ($hadMod) {
+    $oldHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash
+    Copy-Item -LiteralPath $destination -Destination (Join-Path $backup 'BALocalSkirmish.dll')
+    if ((Get-FileHash -LiteralPath (Join-Path $backup 'BALocalSkirmish.dll')).Hash -ne $oldHash) { throw 'The previous DLL backup could not be verified; installation stopped.' }
+}
+if ($hadSettings) {
+    $settingsHash = (Get-FileHash -LiteralPath $settings -Algorithm SHA256).Hash
+    Copy-Item -LiteralPath $settings -Destination (Join-Path $backup 'lobby.json')
+    if ((Get-FileHash -LiteralPath (Join-Path $backup 'lobby.json')).Hash -ne $settingsHash) { throw 'The settings backup could not be verified; installation stopped.' }
+}
+$expectedHash = (Get-FileHash -LiteralPath $source -Algorithm SHA256).Hash
+$record = [ordered]@{
+    Version = $manifest.Version
+    CreatedUtc = [DateTime]::UtcNow.ToString('o')
+    GameFolder = $gameRoot
+    PreviousModPresent = $hadMod
+    PreviousDllSHA256 = $oldHash
+    SettingsPresent = $hadSettings
+    SettingsSHA256 = $settingsHash
+    InstalledDllSHA256 = $expectedHash
+    SourceCommit = $manifest.SourceCommit
+}
+[IO.File]::WriteAllText((Join-Path $backup 'backup.json'), ($record | ConvertTo-Json -Depth 4))
+Require-GameClosed
+New-Item -ItemType Directory -Path $mods -Force | Out-Null
 try {
-  Set-Content -Path (Join-Path $game 'steam_appid.txt') -Value '1604270' -Encoding ascii -NoNewline
-  Ok "Wrote steam_appid.txt (Broken Arrow app id 1604270)."
-} catch { Warn ("Couldn't write steam_appid.txt: " + $_.Exception.Message) }
-
-$launcher = Join-Path $game 'Launch Broken Arrow (Modded).bat'
-$launcherBody = @'
-@echo off
-setlocal
-cd /d "%~dp0"
-title Broken Arrow (Modded) Launcher
-if not exist "%~dp0steam_appid.txt" (>"%~dp0steam_appid.txt" echo 1604270)
-REM Make sure Steam is running so the game can get its auth ticket (no ticket = Loading Hangar hang).
-tasklist /FI "IMAGENAME eq steam.exe" 2>nul | find /I "steam.exe" >nul
-if errorlevel 1 (
-    echo Steam is not running - starting it. If prompted, sign in, then it will continue...
-    start "" "steam://open/main"
-    timeout /t 12 /nobreak >nul
-)
-REM Launch the raw exe (no EACLauncher) so EasyAntiCheat stays off and MelonLoader loads.
-start "" "%~dp0BrokenArrow.exe"
-endlocal
-'@
-try {
-  Set-Content -Path $launcher -Value $launcherBody -Encoding ascii
-  Ok "Created 'Launch Broken Arrow (Modded).bat'."
-} catch { Warn ("Couldn't write launcher: " + $_.Exception.Message) }
-
-# ---------- modded launch shortcut (EAC off, Steam context on) ----------
-if (-not $NoShortcut) {
-  try {
-    $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Broken Arrow (Modded).lnk'
-    $ws = New-Object -ComObject WScript.Shell
-    $s = $ws.CreateShortcut($lnk)
-    $s.TargetPath = $launcher
-    $s.WorkingDirectory = $game
-    $s.WindowStyle = 7   # minimized - hide the brief launcher console
-    $s.IconLocation = (Join-Path $game 'BrokenArrow.exe')
-    $s.Description = 'Launch Broken Arrow with mods (EasyAntiCheat off, Steam context on)'
-    $s.Save()
-    Ok "Created desktop shortcut: 'Broken Arrow (Modded)'."
-  } catch { Warn ("Couldn't create desktop shortcut: " + $_.Exception.Message) }
+    Copy-Item -LiteralPath $source -Destination $destination -Force
+    if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash -ne $expectedHash) { throw 'The installed DLL did not match the verified release.' }
+} catch {
+    if ($hadMod) { Copy-Item -LiteralPath (Join-Path $backup 'BALocalSkirmish.dll') -Destination $destination -Force }
+    elseif (Test-Path -LiteralPath $destination -PathType Leaf) { Remove-Item -LiteralPath $destination -Force }
+    throw
 }
-
-Write-Host ''
-Ok "$ModName is installed."
-Write-Host ''
-Write-Host 'HOW TO PLAY MODDED:' -ForegroundColor White
-Write-Host '  - Make sure Steam is running and signed in, then launch with the new'
-Write-Host '    "Broken Arrow (Modded)" desktop shortcut. (Steam must be running or the game'
-Write-Host '    hangs at "Loading Hangar" - the shortcut/launcher handles the rest.)'
-Write-Host '  - Do NOT use the Steam Play button or EACLauncher.exe while mods are in Mods\'
-Write-Host '    - those turn EasyAntiCheat on. Never play ONLINE with mods active.'
-Write-Host '  - The first modded launch is slower (MelonLoader generates game assemblies).'
-Write-Host '  - A black MelonLoader console window opening alongside the game is normal.'
-Write-Host '  - In the main menu, click SKIRMISH to open the Local AI Skirmish setup'
-Write-Host '    panel (pick map, deck, difficulty and options), then Start Battle.'
-Write-Host ''
-Read-Host 'Press Enter to close'
+if ($hadSettings -and (Get-FileHash -LiteralPath $settings -Algorithm SHA256).Hash -ne $settingsHash) {
+    throw 'Settings changed during installation. The original settings are preserved in the backup folder.'
+}
+Write-Host ('Installed Local Skirmish Lobby ' + $manifest.Version + '.')
+Write-Host ('Verified SHA256: ' + $expectedHash)
+Write-Host ('Backup: ' + $backup)
+Write-Host 'Your loader, launcher and original game files were preserved. Launch using your usual offline modded shortcut.'

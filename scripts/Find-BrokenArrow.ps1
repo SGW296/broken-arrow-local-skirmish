@@ -45,7 +45,7 @@ function Find-BrokenArrow([string]$ExplicitPath, [string]$PackageRoot, [switch]$
     }
     $candidates = @($PackageRoot, (Split-Path -Parent $PackageRoot))
     $candidates += @(Get-SteamGameCandidates $roots)
-    $candidates += @('D:\Games\Broken Arrow', 'D:\SteamLibrary\steamapps\common\Broken Arrow', 'E:\SteamLibrary\steamapps\common\Broken Arrow')
+    $candidates += @('C:\Games\Broken Arrow', 'D:\Games\Broken Arrow', 'D:\SteamLibrary\steamapps\common\Broken Arrow', 'E:\SteamLibrary\steamapps\common\Broken Arrow')
     foreach ($candidate in $candidates) {
         if (Test-BrokenArrowFolder $candidate) { return (Resolve-Path -LiteralPath $candidate).ProviderPath }
     }
