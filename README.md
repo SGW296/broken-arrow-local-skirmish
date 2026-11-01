@@ -1,5 +1,7 @@
 # Broken Arrow: Local Skirmish
 
+Project scope, next milestones and commander feasibility: [PROJECT-ROADMAP.md](PROJECT-ROADMAP.md).
+
 > **Local lobby fork (3.0.0, branch `feature/native-skirmish-parity`)**: active/closed optional bots,
 > 1v1–5v5 setups, native AI army presets alongside custom decks, team nation filters, saved setups
 > and a full native-style graphical overhaul. See [installation and controls](docs/INSTALL-LOBBY.md)
