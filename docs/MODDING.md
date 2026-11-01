@@ -31,6 +31,10 @@ Checks (PowerShell, .NET SDK on PATH):
 ./tests/Test-Lobby.ps1
 ./tests/Test-TeamRoster.ps1
 ./tests/Test-Preview.ps1
+./tests/Test-SlotPolicy.ps1
+./tests/Test-SlotRuntime.ps1
+./tests/Test-NativeAiProfiles.ps1
+./tests/Test-NativeStyle.ps1
 ./tests/Test-DeckSelection.ps1
 ./tests/Test-PatchRegistration.ps1 -GameDir 'C:\Games\Broken Arrow'
 ```

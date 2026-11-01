@@ -1,8 +1,36 @@
-# Local lobby UI iteration — 2.8.0 local fork
+# Local lobby iteration — 3.0.0 local fork
 
 Base: BovineOverlord/broken-arrow-local-skirmish at `77ba5ae30bf4705b1119ae39a0a829708ede6b6b`.
-Branch: `ui/team-roster-previews`, based on the previous `ui/clear-local-lobby` iteration.
+Branch: `feature/native-skirmish-parity`, based on the previous UI branches.
 The version number identifies this fork, not an upstream release.
+
+## 3.0.0: native feature investigation and full lobby overhaul
+
+Implemented runtime active/closed optional bots, 1v1–5v5 shortcuts, asymmetric setups, fill-all,
+protected human/required slots and launch validation. Closed states, native AI profile IDs and team
+nation filters persist without breaking older setup files. Nation filters constrain actual armies.
+
+Native army presets connect through `NodeGetSlotData.InitSolo` and `AiPresetId` on the 22 verified
+shipped v1.2.0 maps. Profile slots retain native scripted UnitInfo; custom-deck slots retain existing
+wave replacement. Both modes can be mixed. Required plan-binding failures stop initialization
+instead of silently loading a different army.
+
+The full lobby uses a 1680×920 composition: battlefield/settings sidebar, two large native-style force
+panels, player cards, closed-state controls, borrowed native fonts/artwork and larger matching pickers.
+Asset availability determines exact visual fidelity. No network prefab is instantiated or shared
+sprite/font destroyed. Live match/visual validation remains necessary.
+
+Detailed evidence and limits:
+
+- [Native feature audit and offline parity matrix](NATIVE-SKIRMISH-AUDIT.md)
+- [Closed-slot native-code and graph traces](CLOSED-SLOT-ENGINE.md)
+- [Native AI profile execution path](NATIVE-AI-PROFILE-NOTES.md)
+- [Native UI design and asset borrowing](NATIVE-UI-DESIGN.md)
+- [Current installation and live checklist](INSTALL-LOBBY.md)
+
+This is the implemented offline subset. Network synchronization, invitations, matchmaking, client
+readiness, extra humans/team switching and spectators are not copied through decorative controls.
+The notes below describe the earlier 2.8.0 iteration.
 
 ## 2.8.0: visible teams and working map images
 

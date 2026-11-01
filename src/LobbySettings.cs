@@ -12,6 +12,9 @@ namespace BALocalSkirmish
         public int Difficulty { get; set; }
         public Dictionary<int, int> Options { get; set; } = new Dictionary<int, int>();
         public Dictionary<int, string> AiDecks { get; set; } = new Dictionary<int, string>();
+        public List<int> ClosedSlots { get; set; } = new List<int>();
+        public Dictionary<int, int> TeamCountries { get; set; } = new Dictionary<int, int>();
+        public Dictionary<int, int> AiPresets { get; set; } = new Dictionary<int, int>();
     }
 
     public sealed class SavedPreset

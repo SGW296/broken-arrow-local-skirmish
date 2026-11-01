@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net6.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <UseAppHost>false</UseAppHost>
+    <CheckEolTargetFramework>false</CheckEolTargetFramework>
+    <NoWarn>CS0649</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/NativeAiProfileBridge.cs" Link="NativeAiProfileBridge.cs" />
+    <Compile Include="../../src/NativeAiProfiles.cs" Link="NativeAiProfiles.cs" />
+    <Compile Include="Program.cs" />
+  </ItemGroup>
+</Project>

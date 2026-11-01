@@ -35,6 +35,8 @@ static class Program
     {
         harmony.CreateClassProcessor(typeof(AiPlayerDeckPatch)).Patch();
         harmony.CreateClassProcessor(typeof(AiSpawnPatch)).Patch();
+        harmony.CreateClassProcessor(typeof(ClosedSlotInitializationPatch)).Patch();
+        harmony.CreateClassProcessor(typeof(NativeAiPresetInitializationPatch)).Patch();
     }
 
     static int Main(string[] args)
@@ -44,6 +46,8 @@ static class Program
         {
             var load = AccessTools.Method(typeof(MissionLoader), nameof(MissionLoader.LoadPlayersDeck));
             var spawn = AccessTools.Method(typeof(NodeSpawnMultiUnits), nameof(NodeSpawnMultiUnits.OnActivated));
+            var slots = AccessTools.Method(typeof(ScenarioController), nameof(ScenarioController.LoadTeamsAndPlayers));
+            var profiles = AccessTools.Method(typeof(NodeGetSlotData), nameof(NodeGetSlotData.InitSolo));
 
             // Reproduce v2.6.2 with the installed Harmony library: our manual pass,
             // then MelonLoader.HarmonyInit's automatic CreateClassProcessor pass.
@@ -62,7 +66,11 @@ static class Program
             Check(Harmony.GetPatchInfo(spawn).Prefixes.Count == 1
                 && Harmony.GetPatchInfo(spawn).Postfixes.Count == 1, "Spawn hooks must be installed exactly once.");
             Check(Checks.RegisteredLoadSurvives(), "Selected AI roster did not survive load and reach the spawned request.");
-            Console.WriteLine("PASS: compiled opt-out, single hook registration, live Harmony dispatch, AI plan survival, custom spawn, and input restoration.");
+            Check(Harmony.GetPatchInfo(slots).Postfixes.Count == 1, "Closed-slot initialization must be hooked exactly once.");
+            Check(Checks.RegisteredClosedSlotsSurvive(), "Closed/active slot initialization, spawns, restart or cleanup failed.");
+            Check(Harmony.GetPatchInfo(profiles).Postfixes.Count == 1, "Native AI preset hook must be installed exactly once.");
+            Check(Checks.RegisteredNativeProfilesSurvive(), "Native AI profile mapping, custom deck separation, restart or cleanup failed.");
+            Console.WriteLine("PASS: compiled opt-out, single hook registration, managed Harmony dispatch, closed-slot initialization, restart/cleanup, AI plan survival and input restoration.");
             return 0;
         }
         finally { harmony.UnpatchSelf(); }

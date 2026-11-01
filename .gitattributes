@@ -6,4 +6,4 @@
 *.dll binary
 *.png binary
 # This upstream fixture was committed with CRLF bytes; preserve it without normalization noise.
-tests/Test-DeckSelection.ps1 -text
+tests/Test-DeckSelection.ps1 -text whitespace=cr-at-eol

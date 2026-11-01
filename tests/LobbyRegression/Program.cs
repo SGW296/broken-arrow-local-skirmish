@@ -12,7 +12,14 @@ namespace BALocalSkirmish
     class ScenarioTeam { public int TeamSide; public string TeamName; public List<ScenarioSlot> Slots = new List<ScenarioSlot>(); }
     class ScenarioSlot { public int BotId; public bool IsBot; public string PlayerName; }
     class IDeckDataModel { public int CountryID, Spec1ID, Spec2ID; public string FileName, Name; }
-    class AiSlot { public int PlayerUid, TeamSide, DeckIndex = -1; public string Name; }
+    class AiSlot { public int PlayerUid, TeamSide, DeckIndex = -1, NativePresetId = -1; public string Name; public bool Closed, Mandatory; }
+    class NativeAiProfileChoice { public int Id, CountryId; public string Name; }
+    static class NativeAiProfiles
+    {
+        public static readonly List<NativeAiProfileChoice> Available = new List<NativeAiProfileChoice>();
+        public static List<NativeAiProfileChoice> GetAvailable(ScenarioSource scenario)
+            => scenario == null ? new List<NativeAiProfileChoice>() : new List<NativeAiProfileChoice>(Available);
+    }
     static class MelonEnvironment { public static string UserDataDirectory; }
     static class MelonLogger { public static void Warning(string value) { } }
 
@@ -21,6 +28,7 @@ namespace BALocalSkirmish
         LobbySettings _settings;
         string _settingsPath, _notice = "", _presetName = "My setup";
         bool _settingsWritable = true, _saveFailed, _hasDiff = true;
+        bool _slotPatchReady = true, _aiDeckPatchReady = true, _profilePatchReady = true;
         int _filter, _optionPage, _teamPage, _rosterPage, _mapIdx, _deckIdx, _diff = 3;
         readonly List<ScenarioSource> _maps = new List<ScenarioSource>();
         readonly List<IDeckDataModel> _decks = new List<IDeckDataModel>();
@@ -28,6 +36,7 @@ namespace BALocalSkirmish
         readonly List<AiSlot> _aiSlots = new List<AiSlot>();
         readonly List<OptDef> _opts = new List<OptDef>();
         readonly Dictionary<int, int> _optVals = new Dictionary<int, int>();
+        readonly Dictionary<int, int> _teamCountries = new Dictionary<int, int>();
         static ScenarioType TypeOf(ScenarioSource value) => value.Type;
         bool IsSkirmishMap() => _mapIdx >= 0 && _mapIdx < _maps.Count && TypeOf(_maps[_mapIdx]) == ScenarioType.Skirmish;
         sealed class Choice { public int Value; public Choice(int value, string label, string detail) { Value = value; } }
@@ -36,7 +45,7 @@ namespace BALocalSkirmish
         void OpenPicker(string title, List<Choice> choices, Action<int> picked) { _choices = choices; _picked = picked; }
         void BuildUI() { }
         void UpdateLabels() { }
-        void RefreshDecks() { _deckIdx = 0; foreach (var slot in _aiSlots) slot.DeckIndex = -1; }
+        void RefreshDecks() { _deckIdx = 0; foreach (var slot in _aiSlots) { slot.DeckIndex = -1; slot.NativePresetId = -1; slot.Closed = false; } }
         void RefreshOptions() { _diff = 3; foreach (var option in _opts) _optVals[option.Uid] = option.Default; }
         static int _passed;
         static void Check(bool condition, string message)
@@ -170,7 +179,9 @@ namespace BALocalSkirmish
             Check(c._saveFailed && Directory.Exists(directory), "Save error was hidden or destroyed original target");
             c._settingsPath = Path.Combine(root, "recovered.json"); c.WriteSettings();
             Check(!c._saveFailed && File.Exists(c._settingsPath), "Successful retry did not clear save error");
-            Console.WriteLine($"PASS: {_passed} lobby checks: labels, filtering, stable identities, map switching, presets, bounds, JSON roundtrip and failure preservation.");
+            PlanChecks(root);
+            NativeProfileChecks(root);
+            Console.WriteLine($"PASS: {_passed} lobby checks: labels, identities, JSON/presets, slot/format/nation/native-profile callbacks, launch guards and persistence.");
         }
     }
 }

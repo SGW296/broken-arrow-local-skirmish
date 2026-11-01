@@ -24,13 +24,14 @@ using Il2CppBrokenArrow.MissionEditor;                                  // Missi
 using Il2CppBrokenArrow.Client.Ecs.Configs;                             // GameSessionContext
 using Il2CppBrokenArrow.Client.Ecs.Controllers;                         // GameController
 using Il2CppBrokenArrow.ScriptEngine.Nodes.Spawn;
+using Il2CppBrokenArrow.ScriptEngine.Nodes.Functions;
 using Il2CppBrokenArrow.ScriptEngine.Editor.Properties;
 using Il2CppBrokenArrow.Shared.Ecs.MissionEditor;
 using Il2CppBrokenArrow.MissionEditor.Inspector;
 using Il2CppBrokenArrow.Shared.Ecs;
 using Il2CppNetworkCommon.Enums.Common;
 
-[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "2.8.0", "BovineOverlord; local UI fork")]
+[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "3.0.0", "BovineOverlord; local UI fork")]
 [assembly: MelonGame(null, null)]
 // Hooks are installed explicitly below so failures can block launching. Without this
 // opt-out, MelonLoader installs them again and the second load prefix clears the plan.
@@ -44,6 +45,9 @@ namespace BALocalSkirmish
         public string Name;
         public int TeamSide;
         public string TeamName;
+        public bool Mandatory;
+        public bool Closed;
+        public int NativePresetId = -1; // -1 keeps the existing custom/full-deck path.
         public int DeckIndex = -1; // Same as player
     }
 
@@ -70,12 +74,17 @@ namespace BALocalSkirmish
         readonly List<AiSlot> _aiSlots = new List<AiSlot>();
         int _aiSlotIdx;
         readonly Dictionary<int, IDeckDataModel> _battleAiDecks = new Dictionary<int, IDeckDataModel>();
+        readonly HashSet<int> _battleClosedSlots = new HashSet<int>();
+        readonly Dictionary<int, int> _battleAiProfiles = new Dictionary<int, int>();
+        int _battleHumanUid = -1;
         readonly Dictionary<int, int> _aiWaveCounts = new Dictionary<int, int>();
         ScenarioSource _battleScenario;
         IDeckDataModel _battlePlayerDeck;
         GameSessionContext _deckSession;
         bool _deckOverridesActive;
         bool _aiLoadPending, _aiRestartAllowed, _aiDeckPatchReady;
+        bool _slotPatchReady;
+        bool _profilePatchReady;
         readonly List<OptDef> _opts = new List<OptDef>();
         readonly Dictionary<int, int> _optVals = new Dictionary<int, int>();
         int _diff = 2;          // 1=Easy, 2=Medium, 3=Hard (DifficultyLevel values)
@@ -104,11 +113,13 @@ namespace BALocalSkirmish
         public override void OnInitializeMelon()
         {
             Instance = this;
-            LoggerInstance.Msg("BA Local Skirmish v2.8.0 UI fork initializing (manual patch registration only)...");
+            LoggerInstance.Msg("BA Local Skirmish v3.0.0 local lobby initializing (manual patch registration only)...");
             Patch(typeof(CreateLobbyPatch));
             _aiDeckPatchReady = Patch(typeof(AiPlayerDeckPatch))
                 & Patch(typeof(DeckAssignmentPatch)) & Patch(typeof(EndBattleDeckPatch))
                 & Patch(typeof(AiSpawnPatch));
+            _slotPatchReady = Patch(typeof(ClosedSlotInitializationPatch));
+            _profilePatchReady = Patch(typeof(NativeAiPresetInitializationPatch));
         }
 
         // Push the chosen game options into the live SceneLoadManager options dict.
@@ -258,7 +269,7 @@ namespace BALocalSkirmish
                         string name = string.IsNullOrEmpty(slot.PlayerName)
                             ? $"{team.TeamName} player {i + 1}" : slot.PlayerName;
                         _aiSlots.Add(new AiSlot { PlayerUid = slot.BotId, Name = name,
-                            TeamSide = (int)team.TeamSide, TeamName = team.TeamName });
+                            TeamSide = (int)team.TeamSide, TeamName = team.TeamName, Mandatory = slot.Mandatory });
                     }
                 }
             }
@@ -271,6 +282,7 @@ namespace BALocalSkirmish
 
         void ClearBattleAiDecks()
         {
+            _battleClosedSlots.Clear(); _battleAiProfiles.Clear(); _battleHumanUid = -1;
             _battleAiDecks.Clear(); _battleScenario = null;
             _battlePlayerDeck = null;
             StopDeckOverrides();
@@ -306,17 +318,88 @@ namespace BALocalSkirmish
             if (TypeOf(scenario) != ScenarioType.Skirmish) return;
             foreach (var slot in _aiSlots)
             {
+                if (slot.Closed)
+                {
+                    if (slot.Mandatory) throw new InvalidOperationException("A required scenario slot cannot be closed.");
+                    _battleClosedSlots.Add(slot.PlayerUid); continue;
+                }
+                if (slot.NativePresetId >= 0)
+                {
+                    _battleAiProfiles.Add(slot.PlayerUid, slot.NativePresetId);
+                    MelonLogger.Msg($"[LocalSkirmish] AI UID {slot.PlayerUid} uses native scripted army preset {slot.NativePresetId}.");
+                    continue;
+                }
                 if (slot.DeckIndex >= _decks.Count)
                     throw new InvalidOperationException("Choose an available deck for " + slot.Name + ".");
                 _battleAiDecks.Add(slot.PlayerUid, slot.DeckIndex < 0 ? playerDeck : _decks[slot.DeckIndex]);
             }
+            _battleHumanUid = HumanUidOf(scenario);
             _battleScenario = scenario;
             _battlePlayerDeck = playerDeck;
             _aiLoadPending = true;
         }
 
+        internal void ApplyNativeAiProfile(NodeGetSlotData node)
+        {
+            if (!_deckOverridesActive || _battleAiProfiles.Count == 0 || _deckSession == null || !MatchesBattleScenario()) return;
+            var player = node?._slotSoloPlayer;
+            if (player == null || !_battleAiProfiles.ContainsKey(player.UID)) return;
+            if (!NativeAiProfileBridge.ApplyPreset(node, _deckSession, _battleAiProfiles, _battleHumanUid))
+                throw new InvalidOperationException("Native AI preset could not be bound to slot UID " + player.UID + ".");
+        }
+
+        static int HumanUidOf(ScenarioSource scenario)
+        {
+            try
+            {
+                foreach (var team in scenario.MetaFile.Teams)
+                    if (team != null && (int)team.TeamSide == 0 && team.Slots != null)
+                        foreach (var slot in team.Slots) if (slot != null) return slot.BotId;
+            }
+            catch { }
+            return -1;
+        }
+
+        internal void ApplyClosedSlotPlan(GameSessionContext session)
+        {
+            if (_battleClosedSlots.Count == 0 || _battlePlayerDeck == null || session == null) return;
+            if (!(_aiLoadPending || (_aiRestartAllowed && PreloadSharedPlayerDeck.IsMissionRestart)) || !MatchesLaunchingScenario()) return;
+            try
+            {
+                int applied = SlotRuntimeBridge.ApplyClosedSlots(session, _battleClosedSlots, _battleHumanUid);
+                foreach (int uid in _battleClosedSlots)
+                {
+                    var player = session.GetPlayer(uid);
+                    if (player != null && (player.IsBot || player.NetID > 0))
+                        throw new InvalidOperationException("Unable to close runtime slot UID " + uid + "; scenario initialization stopped.");
+                }
+                MelonLogger.Msg($"[LocalSkirmish] Closed {applied}/{_battleClosedSlots.Count} optional AI slots before scenario graph initialization.");
+            }
+            catch (Exception e)
+            {
+                MelonLogger.Error("[LocalSkirmish] Apply closed slots: " + e);
+                throw; // Do not silently continue a battle with bots the user explicitly closed.
+            }
+        }
+
+        bool MatchesLaunchingScenario()
+        {
+            try { if (ScenariosService.ActiveScenario != null) return MatchesBattleScenario(); } catch { }
+            try
+            {
+                var loading = ISceneLoadManager.Instance?.LoadScenario;
+                if (loading != null)
+                    return _battleScenario != null && TypeOf(loading) == ScenarioType.Skirmish
+                        && string.Equals(loading.Folder, _battleScenario.Folder, StringComparison.OrdinalIgnoreCase)
+                        && string.Equals(loading.Name, _battleScenario.Name, StringComparison.Ordinal);
+            }
+            catch { }
+            return MatchesBattleScenario();
+        }
+
         internal void BeginDeckLoad(MissionLoader loader)
         {
+            bool needsExactPlan = _battleClosedSlots.Count > 0 || _battleAiProfiles.Count > 0;
             StopDeckOverrides();
             if (_battlePlayerDeck == null) return;
             try
@@ -325,7 +408,9 @@ namespace BALocalSkirmish
                 {
                     MelonLogger.Msg($"[LocalSkirmish] Deck plan discarded: matching scenario={MatchesBattleScenario()}, "
                         + $"pending={_aiLoadPending}, restart={PreloadSharedPlayerDeck.IsMissionRestart}.");
-                    ClearBattleAiDecks(); return;
+                    ClearBattleAiDecks();
+                    if (needsExactPlan) throw new InvalidOperationException("The selected closed-slot/native AI plan does not match this scenario load.");
+                    return;
                 }
 
                 var session = loader._game.GameSession;
@@ -335,12 +420,13 @@ namespace BALocalSkirmish
                 _deckOverridesActive = true;
                 _aiLoadPending = false;
                 _aiRestartAllowed = true;
-                MelonLogger.Msg($"[LocalSkirmish] Individual deck choices bound to the local battle: human UID {human.UID}, {_battleAiDecks.Count} AI choices.");
+                MelonLogger.Msg($"[LocalSkirmish] Local plan bound: human UID {human.UID}, {_battleAiDecks.Count} custom AI decks, {_battleAiProfiles.Count} native AI presets, {_battleClosedSlots.Count} closed slots.");
             }
             catch (Exception e)
             {
                 ClearBattleAiDecks();
                 MelonLogger.Error("[LocalSkirmish] Bind deck choices: " + e);
+                if (needsExactPlan) throw new InvalidOperationException("Selected slots and AI presets could not be bound; scenario initialization stopped.", e);
             }
         }
 
@@ -386,7 +472,13 @@ namespace BALocalSkirmish
                 if (!MatchesBattleScenario()) { ClearBattleAiDecks(); return; }
                 var human = _deckSession.CurrentPlayer;
                 if (human == null) { ClearBattleAiDecks(); return; }
-                if (uid == human.UID || !_battleAiDecks.TryGetValue(uid, out deck)) return;
+                if (uid == human.UID) return;
+                if (_battleClosedSlots.Contains(uid))
+                {
+                    node.UnitInfo = new MultiUnits { Units = new Il2CppReferenceArray<UnitModData>(0) };
+                    node.Units = new UnitObject(0); return;
+                }
+                if (!_battleAiDecks.TryGetValue(uid, out deck)) return;
                 var player = _deckSession.GetPlayer(uid);
                 if (player == null || !player.IsBot) return;
                 var original = node.UnitInfo;
@@ -611,6 +703,8 @@ namespace BALocalSkirmish
         {
             try
             {
+                string problem = GetLaunchProblem();
+                if (problem != null) { if (_statusLabel != null) _statusLabel.text = problem; return; }
                 if (_mapIdx < 0 || _mapIdx >= _maps.Count) { if (_statusLabel != null) _statusLabel.text = "Pick a map."; return; }
                 if (_deckIdx < 0 || _deckIdx >= _decks.Count) { if (_statusLabel != null) _statusLabel.text = "This map has no valid deck for you."; return; }
                 var scenario = _maps[_mapIdx];
@@ -641,7 +735,7 @@ namespace BALocalSkirmish
                 PendingOptions.Clear();
                 foreach (var kv in _optVals) PendingOptions[kv.Key] = kv.Value;
 
-                MelonLogger.Msg($"[LocalSkirmish] Launching '{_mapNames[_mapIdx]}' player deck '{_deckNames[_deckIdx]}', {_battleAiDecks.Count} individual AI deck(s) with {PendingOptions.Count} option(s).");
+                MelonLogger.Msg($"[LocalSkirmish] Launching '{_mapNames[_mapIdx]}' player deck '{_deckNames[_deckIdx]}', {_battleAiDecks.Count} custom AI deck(s), {_battleAiProfiles.Count} native preset(s), {_battleClosedSlots.Count} closed slot(s), {PendingOptions.Count} option(s).");
                 DestroyUI();
                 st.ChangeScene(scenario);
                 _appliedLogged = false;

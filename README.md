@@ -1,7 +1,9 @@
 # Broken Arrow: Local Skirmish
 
-> **Local UI fork (2.8.0, branch `ui/team-roster-previews`)**: two visible team rosters with deck
-> controls on each row, native map preview images, searchable selectors, filters and saved setups.
+> **Local lobby fork (3.0.0, branch `feature/native-skirmish-parity`)**: active/closed optional bots,
+> 1v1–5v5 setups, native AI army presets alongside custom decks, team nation filters, saved setups
+> and a full native-style graphical overhaul. See [installation and controls](docs/INSTALL-LOBBY.md)
+> and the [native skirmish investigation](docs/NATIVE-SKIRMISH-AUDIT.md).
 > See [implementation and validation notes](docs/UI-ITERATION.md). Built against the local v1.2.0
 > assemblies and checked with managed regressions; live game testing is still required.
 > `dist/BALocalSkirmish.dll` remains the original upstream 2.6.3 binary. Build this fork from source
@@ -47,6 +49,10 @@ Play button, which runs EasyAntiCheat and blocks mods), then click **Skirmish**.
 On dedicated skirmish maps, **Your team** and **Opposing team** show the existing players side by
 side. Click the deck button directly on your human row or any configurable AI row. Each row keeps
 its own deck; there is no separate slot chooser. Extra rows/teams are paged when needed.
+
+Use **ACTIVE/CLOSED** for no-player slots, or **Match format** for 1v1–5v5. AI army selectors offer
+native **AI preset** choices on verified built-in maps alongside custom decks. Closed slots keep their
+army for reopening. Human/required slots are protected; at least one opposing slot stays active.
 
 Each AI defaults to **Same as your deck**. The deck buttons open searchable lists, including saved
 custom decks. Create/edit custom decks in the game's deck builder before opening setup. The inspected

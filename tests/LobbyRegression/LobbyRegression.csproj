@@ -10,7 +10,11 @@
   <ItemGroup>
     <Compile Include="../../src/LobbySettings.cs" Link="LobbySettings.cs" />
     <Compile Include="../../src/TeamRoster.cs" Link="TeamRoster.cs" />
+    <Compile Include="../../src/SlotSelectionPolicy.cs" Link="SlotSelectionPolicy.cs" />
+    <Compile Include="../../src/LobbyPlan.cs" Link="LobbyPlan.cs" />
     <Compile Include="obj/LobbyFixture.cs" />
     <Compile Include="Program.cs" />
+    <Compile Include="PlanChecks.cs" />
+    <Compile Include="NativeProfileChecks.cs" />
   </ItemGroup>
 </Project>

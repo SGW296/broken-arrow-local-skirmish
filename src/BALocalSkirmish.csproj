@@ -23,6 +23,14 @@
     <Compile Include="TeamRosterUI.cs" />
     <Compile Include="TeamRoster.cs" />
     <Compile Include="MapPreviewResolver.cs" />
+    <Compile Include="NativeLobbyStyle.cs" />
+    <Compile Include="LobbyPlan.cs" />
+    <Compile Include="SlotSelectionPolicy.cs" />
+    <Compile Include="SlotRuntimeBridge.cs" />
+    <Compile Include="ClosedSlotHooks.cs" />
+    <Compile Include="NativeAiProfiles.cs" />
+    <Compile Include="NativeAiProfileBridge.cs" />
+    <Compile Include="NativeAiPresetHooks.cs" />
   </ItemGroup>
 
   <!-- These assemblies are generated the first time you launch the game with

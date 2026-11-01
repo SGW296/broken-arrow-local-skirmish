@@ -25,6 +25,10 @@ $methods = @(
     'void RefreshAiSlots('
     'void ClearBattleAiDecks('
     'void PrepareDecks('
+    'static int HumanUidOf('
+    'internal void ApplyClosedSlotPlan('
+    'internal void ApplyNativeAiProfile('
+    'bool MatchesLaunchingScenario('
     'bool MatchesBattleScenario('
     'internal void StopDeckOverrides('
     'internal void BeginDeckLoad('
@@ -108,9 +112,10 @@ class Session {
 }
 class Meta { public ScenarioType Type; public List<Team> Teams = new List<Team>(); }
 class Team { public int TeamSide; public string TeamName; public List<Slot> Slots = new List<Slot>(); }
-class Slot { public bool IsBot = true; public int BotId; public string PlayerName; }
+class Slot { public bool IsBot = true, Mandatory = false; public int BotId; public string PlayerName; }
 class ScenarioSource { public Meta MetaFile; public string Folder, Name; }
 class ScenariosService { public static ScenarioSource ActiveScenario; }
+class ISceneLoadManager { public static ISceneLoadManager Instance; public ScenarioSource LoadScenario; }
 class DeckService {
     public List<IDeckDataModel> Available;
     public bool Fail;
@@ -132,11 +137,39 @@ static class SharedPlayerDeck {
         Assigned[uid] = output;
     }
 }
-class Player { public int UID; public bool IsBot = true; public string PlayerName = "AI"; }
+class Player { public int UID, NetID = 0; public bool IsBot = true; public string PlayerName = "AI"; }
 class GameSessionContext {
     public Player CurrentPlayer;
     public readonly Dictionary<int, Player> Players = new Dictionary<int, Player>();
     public Player GetPlayer(int uid) { return Players.TryGetValue(uid, out var p) ? p : null; }
+}
+static class SlotRuntimeBridge {
+    public static int ApplyClosedSlots(GameSessionContext session, IEnumerable<int> closed, int human) {
+        int count=0;
+        foreach(int uid in closed) {
+            var player=session.GetPlayer(uid);
+            if(uid!=human && (session.CurrentPlayer==null || uid!=session.CurrentPlayer.UID) && player!=null && player.IsBot) { player.IsBot=false; count++; }
+        }
+        return count;
+    }
+}
+class ScenarioController {
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public void LoadTeamsAndPlayers(GameSessionContext session) {}
+}
+class NodeGetSlotData {
+    public Player _slotSoloPlayer=null;
+    public int AiPresetId=-1;
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    public void InitSolo() {}
+}
+static class NativeAiProfileBridge {
+    public static bool ApplyPreset(NodeGetSlotData node, GameSessionContext session, IReadOnlyDictionary<int,int> plan, int human) {
+        var player=node._slotSoloPlayer;
+        if(player==null || !player.IsBot || player.UID==human || !ReferenceEquals(session.GetPlayer(player.UID),player)
+            || !plan.TryGetValue(player.UID,out int id)) return false;
+        node.AiPresetId=id; return true;
+    }
 }
 class Game { public GameSessionContext GameSession = new GameSessionContext(); }
 class MissionLoader {
@@ -148,6 +181,12 @@ static class MelonLogger { public static void Error(string message) {} public st
 '@
 $prefix += Get-MethodSource 'class AiSlot'
 $prefix += (Get-MethodSource 'static class AiSpawnPatch').Replace('static void Prefix(', 'public static void Prefix(').Replace('static void Postfix(', 'public static void Postfix(').Replace('Core.Instance', 'Checks.Active')
+$mainSource = $source
+$source = Get-Content (Join-Path $PSScriptRoot '../src/ClosedSlotHooks.cs') -Raw
+$prefix += (Get-MethodSource 'static class ClosedSlotInitializationPatch').Replace('Core.Instance', 'Checks.Active')
+$source = Get-Content (Join-Path $PSScriptRoot '../src/NativeAiPresetHooks.cs') -Raw
+$prefix += (Get-MethodSource 'static class NativeAiPresetInitializationPatch').Replace('Core.Instance', 'Checks.Active')
+$source = $mainSource
 $prefix += @'
 public class Checks {
     readonly List<ScenarioSource> _maps = new List<ScenarioSource>();
@@ -155,6 +194,9 @@ public class Checks {
     readonly List<string> _deckNames = new List<string>();
     readonly List<AiSlot> _aiSlots = new List<AiSlot>();
     readonly Dictionary<int, IDeckDataModel> _battleAiDecks = new Dictionary<int, IDeckDataModel>();
+    readonly HashSet<int> _battleClosedSlots = new HashSet<int>();
+    readonly Dictionary<int,int> _battleAiProfiles = new Dictionary<int,int>();
+    int _battleHumanUid = -1;
     readonly Dictionary<int, int> _aiWaveCounts = new Dictionary<int, int>();
     static readonly Random _rng = new Random(123);
     internal static Checks Active;
@@ -387,6 +429,44 @@ $suffix = @'
         session.CurrentPlayer = session.Players[2];
 
         SpawnChecks(c,loader,scenario,human,armor,air);
+        c.RefreshAiSlots();
+        c._aiSlots[0].Closed = true;
+        loader._game.GameSession.Players[3].IsBot = true;
+        ScenariosService.ActiveScenario = scenario;
+        c.PrepareDecks(scenario,human);
+        Check(c._battleClosedSlots.Contains(3) && !c._battleAiDecks.ContainsKey(3), "Closed slot still received active deck plan");
+        c.ApplyClosedSlotPlan(loader._game.GameSession);
+        Check(!loader._game.GameSession.Players[3].IsBot && loader._game.GameSession.Players.ContainsKey(3), "Closed slot identity/activation incorrect");
+        c.BeginDeckLoad(loader);
+        Check(Activate(Wave(3,Request(901,UnitCategoryType.Vehicles))).Units.Count==0, "Direct scripted wave leaked from a closed UID");
+        PreloadSharedPlayerDeck.IsMissionRestart=true;
+        loader._game.GameSession.Players[3].IsBot=true;
+        c.ApplyClosedSlotPlan(loader._game.GameSession);
+        Check(!loader._game.GameSession.Players[3].IsBot, "Restart lost closed-slot plan");
+        PreloadSharedPlayerDeck.IsMissionRestart=false;
+        c.StopDeckOverrides(); loader._game.GameSession.Players[3].IsBot=true;
+        c.ApplyClosedSlotPlan(loader._game.GameSession);
+        Check(loader._game.GameSession.Players[3].IsBot, "Closed-slot patch leaked after battle ended");
+        c.PrepareDecks(scenario,human);
+        ISceneLoadManager.Instance=new ISceneLoadManager {LoadScenario=new ScenarioSource {Folder="other",Name="other",MetaFile=new Meta{Type=ScenarioType.Skirmish}}};
+        ScenariosService.ActiveScenario=ISceneLoadManager.Instance.LoadScenario;
+        c.ApplyClosedSlotPlan(loader._game.GameSession);
+        Check(loader._game.GameSession.Players[3].IsBot, "Closed-slot patch changed another loading scenario");
+        ISceneLoadManager.Instance.LoadScenario=scenario; ScenariosService.ActiveScenario=null;
+        c.ApplyClosedSlotPlan(loader._game.GameSession);
+        Check(!loader._game.GameSession.Players[3].IsBot, "Early loading scenario could not apply plan before ActiveScenario binding");
+        ScenariosService.ActiveScenario=scenario;ISceneLoadManager.Instance.LoadScenario=new ScenarioSource{Folder="stale",Name="stale",MetaFile=new Meta{Type=ScenarioType.Skirmish}};
+        loader._game.GameSession.Players[3].IsBot=true;c.ApplyClosedSlotPlan(loader._game.GameSession);
+        Check(!loader._game.GameSession.Players[3].IsBot, "Stale scene-load metadata overrode the authoritative active scenario");
+        ISceneLoadManager.Instance=null; ScenariosService.ActiveScenario=scenario;
+        c.ClearBattleAiDecks();
+        Check(c._battleClosedSlots.Count==0 && c._battleHumanUid==-1 && c._battleAiProfiles.Count==0, "Clear retained slot/profile state");
+        c._aiSlots[0].Closed=false; loader._game.GameSession.Players[3].IsBot=true;
+        c._aiSlots[0].NativePresetId=2; c.PrepareDecks(scenario,human);
+        var savedHuman=loader._game.GameSession.CurrentPlayer;loader._game.GameSession.CurrentPlayer=null;
+        bool strictFailure=false;try{c.BeginDeckLoad(loader);}catch(InvalidOperationException){strictFailure=true;}
+        Check(strictFailure && c._battleAiProfiles.Count==0 && !c._deckOverridesActive,"Required native army plan silently fell back after binding failure");
+        loader._game.GameSession.CurrentPlayer=savedHuman;c._aiSlots[0].NativePresetId=-1;
         c.PrepareDecks(scenario, human);
         scenario.MetaFile.Type = ScenarioType.MultiplayerPVE;
         c.PrepareDecks(scenario, human);
@@ -448,9 +528,61 @@ if ($ExportHarness) {
             && node.NativeRequest.Units[0].UnitID==123
             && ReferenceEquals(node.UnitInfo,sharedInput);
     }
+    public static bool RegisteredClosedSlotsSurvive() {
+        var c=new Checks(); Active=c;
+        var scenario=new ScenarioSource {Folder="closed-map",Name="closed-registration",MetaFile=new Meta{Type=ScenarioType.Skirmish}};
+        var alpha=new Team{TeamSide=0}; alpha.Slots.Add(new Slot{BotId=2}); alpha.Slots.Add(new Slot{BotId=3});
+        scenario.MetaFile.Teams.Add(alpha);
+        ScenariosService.ActiveScenario=scenario;
+        var human=new Deck{Name="Human"}; var army=new Deck{Name="AI"};
+        army.Slots[UnitCategoryType.Vehicles]=new[]{new DeckSlotModel{UnitID=123,Category=UnitCategoryType.Vehicles}};
+        c._decks.Add(army); c._aiSlots.Add(new AiSlot{PlayerUid=3,Name="Closed",Closed=true});
+        c._aiSlots.Add(new AiSlot{PlayerUid=5,Name="Active",DeckIndex=0});
+        var loader=new MissionLoader(); var session=loader._game.GameSession;
+        session.CurrentPlayer=new Player{UID=2}; session.Players[3]=new Player{UID=3}; session.Players[5]=new Player{UID=5};
+        c.PrepareDecks(scenario,human);
+        new ScenarioController().LoadTeamsAndPlayers(session);
+        if(session.Players[3].IsBot || !session.Players[5].IsBot || session.Players.Count!=2) return false;
+        loader.LoadPlayersDeck();
+        var closedWave=Wave(3,Request(901,UnitCategoryType.Vehicles)); closedWave.OnActivated();
+        var activeWave=Wave(5,Request(901,UnitCategoryType.Vehicles)); activeWave.OnActivated();
+        if(!closedWave.Completed || closedWave.NativeRequest!=null || closedWave.Units.Count!=0
+            || activeWave.NativeRequest.Units[0].UnitID!=123) return false;
+        PreloadSharedPlayerDeck.IsMissionRestart=true; session.Players[3].IsBot=true;
+        new ScenarioController().LoadTeamsAndPlayers(session);
+        bool restart=!session.Players[3].IsBot;
+        PreloadSharedPlayerDeck.IsMissionRestart=false; c.ClearBattleAiDecks(); session.Players[3].IsBot=true;
+        new ScenarioController().LoadTeamsAndPlayers(session);
+        return restart && session.Players[3].IsBot;
+    }
+    public static bool RegisteredNativeProfilesSurvive() {
+        var c=new Checks(); Active=c;
+        var scenario=new ScenarioSource{Folder="native-map",Name="profile-registration",MetaFile=new Meta{Type=ScenarioType.Skirmish}};
+        var alpha=new Team{TeamSide=0};alpha.Slots.Add(new Slot{BotId=2});scenario.MetaFile.Teams.Add(alpha);
+        ScenariosService.ActiveScenario=scenario;
+        var human=new Deck{Name="Human"};var custom=new Deck{Name="Custom"};
+        custom.Slots[UnitCategoryType.Vehicles]=new[]{new DeckSlotModel{UnitID=123,Category=UnitCategoryType.Vehicles}};
+        c._decks.Add(custom);
+        c._aiSlots.Add(new AiSlot{PlayerUid=5,Name="Native",NativePresetId=2});
+        c._aiSlots.Add(new AiSlot{PlayerUid=6,Name="Custom",DeckIndex=0});
+        var loader=new MissionLoader();var session=loader._game.GameSession;
+        session.CurrentPlayer=new Player{UID=2};session.Players[5]=new Player{UID=5};session.Players[6]=new Player{UID=6};
+        c.PrepareDecks(scenario,human);loader.LoadPlayersDeck();
+        var node=new NodeGetSlotData{_slotSoloPlayer=session.Players[5]};node.InitSolo();
+        if(node.AiPresetId!=2 || c._battleAiDecks.ContainsKey(5) || c._battleAiProfiles[5]!=2) return false;
+        var native=Wave(5,Request(901,UnitCategoryType.Vehicles));native.OnActivated();
+        var edited=Wave(6,Request(901,UnitCategoryType.Vehicles));edited.OnActivated();
+        if(native.NativeRequest.Units[0].UnitID!=901 || edited.NativeRequest.Units[0].UnitID!=123) return false;
+        c.StopDeckOverrides();node.AiPresetId=-1;node.InitSolo();if(node.AiPresetId!=-1)return false;
+        PreloadSharedPlayerDeck.IsMissionRestart=true;loader.LoadPlayersDeck();node.InitSolo();
+        bool restart=node.AiPresetId==2;PreloadSharedPlayerDeck.IsMissionRestart=false;
+        c.ClearBattleAiDecks();return restart && c._battleAiProfiles.Count==0;
+    }
 '@
     $prefix = "using HarmonyLib;`n" + $prefix
     $prefix = $prefix.Replace('static class AiSpawnPatch', '[HarmonyPatch(typeof(NodeSpawnMultiUnits), nameof(NodeSpawnMultiUnits.OnActivated))] static class AiSpawnPatch')
+    $prefix = $prefix.Replace('static class ClosedSlotInitializationPatch', '[HarmonyPatch(typeof(ScenarioController), nameof(ScenarioController.LoadTeamsAndPlayers))] static class ClosedSlotInitializationPatch')
+    $prefix = $prefix.Replace('static class NativeAiPresetInitializationPatch', '[HarmonyPatch(typeof(NodeGetSlotData), nameof(NodeGetSlotData.InitSolo))] static class NativeAiPresetInitializationPatch')
     $suffix = $suffix.Replace('    public static string Run() {', $registrationFixture + "`n    public static string Run() {")
     $loadPatch = (Get-MethodSource 'static class AiPlayerDeckPatch').Replace('Core.Instance', 'Checks.Active')
     $harness = $prefix + ($methods -join "`n") + $suffix + "`nnamespace DeckSelectionRegression { [HarmonyPatch(typeof(MissionLoader), nameof(MissionLoader.LoadPlayersDeck))] " + $loadPatch + ' }'

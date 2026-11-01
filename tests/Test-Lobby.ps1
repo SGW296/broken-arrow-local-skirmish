@@ -17,7 +17,7 @@ $methods = @(
     'static string ScenarioKey(', 'static string DeckKey(', 'int FindDeck(',
     'SetupSnapshot CaptureSetup(', 'void RestoreSetup(', 'void ReadSettings(',
     'void SaveCurrent(', 'void WriteSettings(', 'void SelectMap(',
-    'List<int> FilteredMaps(', 'void SavePreset(', 'void LoadPreset(', 'void PickDeckForSlot('
+    'List<int> FilteredMaps(', 'void SavePreset(', 'void LoadPreset(', 'void PickDeckForSlot(', 'void ResetDefaults('
 ) | ForEach-Object { Get-MethodSource $_ }
 $source = Get-Content (Join-Path $PSScriptRoot '../src/TeamRosterUI.cs') -Raw
 $methods += Get-MethodSource 'List<RosterTeam> ReadRoster('
