@@ -25,10 +25,26 @@ it is not a commitment to months of unattended implementation or a fixed deliver
 
 ## What we have now
 
-- Local lobby 3.0.0 is built and installed. Source is based on the MIT-licensed Local Skirmish mod.
+### Agreed balance target
+
+**Normal** is the reference difficulty: a good, balanced match for a competent campaign-complete
+player. Tune Normal first. The engine's value 2 is named Medium; relabelling it Normal preserves its
+existing meaning and does not itself rebalance the scripts. Easy/Hard may intentionally vary pressure
+or advantages, with their effects described when measured. Normal's target is a contest where sound
+composition and decisions matter, pressure is recoverable, air has counterplay, and unavoidable
+reinforcement volume is not the main source of challenge. This is a quality target, not a promised
+50% win rate for every deck/map or a claim of currently identical resource rules.
+
+The first Normal iteration is a measurement build: default new/reset skirmish setups to Normal,
+preserve explicit saved difficulty choices, log native/custom/closed requests and forwarded payloads,
+and record runtime player flags and requested option values. Then run the same Airbase 1v1 setup
+on Normal before changing pacing. Investigate ownership/scaling issues before tuning reinforcements.
+
+- Local lobby 3.0.0 passed its first live smoke test. Source is based on the MIT-licensed Local Skirmish mod.
+  The 3.0.1 Normal measurement build adds diagnostics and clearer defaults; live acceptance is pending.
 - Visible teams, closed optional slots, match formats, native presets, custom decks, nation filters,
   previews and saved setups are implemented. A native-inspired graphical overhaul is implemented.
-- The build and 633 managed checks pass, plus the managed Harmony registration fixture.
+- The 3.0.1 build and 679 managed checks pass, plus the managed Harmony registration fixture.
 - **First live smoke test passed:** Airbase/Hard 1v1, native AI units and a jet observed, eight runtime
   closures logged. Broad visual/match/restart acceptance remains incomplete; 3.0.0 remains a candidate.
   See [the live test record](docs/LIVE-TEST-3.0.0.md). Fair resource rules have not been established.
@@ -38,7 +54,7 @@ it is not a commitment to months of unattended implementation or a fixed deliver
 
 Existing research: [native lobby audit](docs/NATIVE-SKIRMISH-AUDIT.md),
 [air diagnosis](docs/AIR-AI-INVESTIGATION.md),
-[current validation](docs/VALIDATION-3.0.0.md), and
+[current validation](docs/VALIDATION-3.0.1.md), and
 [commander feasibility review](docs/COMMANDER-FEASIBILITY-REVIEW.md).
 
 ## First development window: approximately 3–5 focused working days

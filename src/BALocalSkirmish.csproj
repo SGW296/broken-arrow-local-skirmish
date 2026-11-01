@@ -31,6 +31,8 @@
     <Compile Include="NativeAiProfiles.cs" />
     <Compile Include="NativeAiProfileBridge.cs" />
     <Compile Include="NativeAiPresetHooks.cs" />
+    <Compile Include="SkirmishWaveDiagnostics.cs" />
+    <Compile Include="MatchDiagnostics.cs" />
   </ItemGroup>
 
   <!-- These assemblies are generated the first time you launch the game with

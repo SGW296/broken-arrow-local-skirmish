@@ -40,10 +40,18 @@ $methods = @(
     'void CycleAiDeck('
     'void CycleAiPlayer('
 ) | ForEach-Object { Get-MethodSource $_ }
+$mainSource = $source
+$source = Get-Content (Join-Path $PSScriptRoot '../src/MatchDiagnostics.cs') -Raw
+$methods += @('internal void TraceSpawnDecision(', 'static Dictionary<int, int> CountSpawnPayload(', 'void DiagnosticFailure(', 'void FlushWaveDiagnostics(') | ForEach-Object { Get-MethodSource $_ }
+$source = $mainSource
+$diagnosticsHelper = (Get-Content (Join-Path $PSScriptRoot '../src/SkirmishWaveDiagnostics.cs') -Raw) -replace '(?m)^using .+;\r?$', ''
 
 $prefix = @'
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
+using BALocalSkirmish;
 namespace Il2CppSystem.Collections.Generic { class List<T> : System.Collections.Generic.List<T> {} }
 namespace DeckSelectionRegression {
 enum ScenarioType { Singleplayer, MultiplayerPVE, MultiplayerPVP, Skirmish }
@@ -177,7 +185,7 @@ class MissionLoader {
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
     public void LoadPlayersDeck() {}
 }
-static class MelonLogger { public static void Error(string message) {} public static void Msg(string message) {} }
+static class MelonLogger { public static void Error(string message) {} public static void Msg(string message) {} public static void Warning(string message) {} }
 '@
 $prefix += Get-MethodSource 'class AiSlot'
 $prefix += (Get-MethodSource 'static class AiSpawnPatch').Replace('static void Prefix(', 'public static void Prefix(').Replace('static void Postfix(', 'public static void Postfix(').Replace('Core.Instance', 'Checks.Active')
@@ -198,6 +206,8 @@ public class Checks {
     readonly Dictionary<int,int> _battleAiProfiles = new Dictionary<int,int>();
     int _battleHumanUid = -1;
     readonly Dictionary<int, int> _aiWaveCounts = new Dictionary<int, int>();
+    readonly SkirmishWaveDiagnostics _waveDiagnostics = new SkirmishWaveDiagnostics();
+    bool _diagnosticFailureLogged;
     static readonly Random _rng = new Random(123);
     internal static Checks Active;
     ScenarioSource _battleScenario;
@@ -209,6 +219,7 @@ public class Checks {
     static DeckService service;
     static DeckService DecksSvc() { return service; }
     void UpdateLabels() {}
+    void LogRuntimeSlotSnapshot(GameSessionContext session) {}
 '@
 $suffix = @'
     static int passed;
@@ -256,8 +267,10 @@ $suffix = @'
         var stock=Request(901,UnitCategoryType.Vehicles);
         var source=Wave(3,stock);
         Check(ReferenceEquals(Activate(source),source.UnitInfo), "Inactive hook modified a wave");
+        Check(c._waveDiagnostics.RequestCount==0, "Inactive diagnostics recorded an unrelated wave");
         c.PrepareDecks(scenario,human); c.BeginDeckLoad(loader);
         var a=Activate(source);
+        Check(c._waveDiagnostics.RequestCount==1, "Active custom wave was not recorded");
         Check(a.Units.Count==1 && a.Units[0].UnitID==101, "Scripted wave bypassed selected AI deck");
         Check(a.Units[0].SkinId==7 && a.Units[0].Items[0].OptionID==2, "Selected skin/upgrades lost");
         Check(Activate(Wave(5,stock)).Units[0].UnitID==201, "Second AI inherited first AI roster");
@@ -273,6 +286,9 @@ $suffix = @'
         var loaded=Request(902,UnitCategoryType.Vehicles);
         loaded.Cargo.Slots.Add(Request(903,UnitCategoryType.Infantry));
         loaded.Cargo.Slots.Add(Request(904,UnitCategoryType.Infantry));
+        var payloadCounts=CountSpawnPayload(new MultiUnits {Units=new Il2CppReferenceArray<UnitModData>(new[]{loaded})});
+        Check(payloadCounts[(int)UnitCategoryType.Vehicles]==1 && payloadCounts[(int)UnitCategoryType.Infantry]==2,
+            "Diagnostic payload counts omitted cargo or changed categories");
         var transportWave=Wave(3,loaded);
         var b=Activate(transportWave);
         Check(b.Units.Count==2 && b.TotalUnitsCount==4 && transportWave.ExpectedCallbacks==4, "Transport count mismatch");
@@ -439,6 +455,8 @@ $suffix = @'
         Check(!loader._game.GameSession.Players[3].IsBot && loader._game.GameSession.Players.ContainsKey(3), "Closed slot identity/activation incorrect");
         c.BeginDeckLoad(loader);
         Check(Activate(Wave(3,Request(901,UnitCategoryType.Vehicles))).Units.Count==0, "Direct scripted wave leaked from a closed UID");
+        Check(c._waveDiagnostics.Summary().Contains("closedRequests=1") && c._waveDiagnostics.Summary().Contains("closedForwardedUnits=0"),
+            "Closed-wave request/forwarded diagnostic state is incorrect");
         PreloadSharedPlayerDeck.IsMissionRestart=true;
         loader._game.GameSession.Players[3].IsBot=true;
         c.ApplyClosedSlotPlan(loader._game.GameSession);
@@ -585,9 +603,9 @@ if ($ExportHarness) {
     $prefix = $prefix.Replace('static class NativeAiPresetInitializationPatch', '[HarmonyPatch(typeof(NodeGetSlotData), nameof(NodeGetSlotData.InitSolo))] static class NativeAiPresetInitializationPatch')
     $suffix = $suffix.Replace('    public static string Run() {', $registrationFixture + "`n    public static string Run() {")
     $loadPatch = (Get-MethodSource 'static class AiPlayerDeckPatch').Replace('Core.Instance', 'Checks.Active')
-    $harness = $prefix + ($methods -join "`n") + $suffix + "`nnamespace DeckSelectionRegression { [HarmonyPatch(typeof(MissionLoader), nameof(MissionLoader.LoadPlayersDeck))] " + $loadPatch + ' }'
+    $harness = $prefix + ($methods -join "`n") + $suffix + "`nnamespace DeckSelectionRegression { [HarmonyPatch(typeof(MissionLoader), nameof(MissionLoader.LoadPlayersDeck))] " + $loadPatch + ' }' + "`n" + $diagnosticsHelper
     Set-Content -LiteralPath $ExportHarness -Value $harness
     return
 }
-Add-Type -TypeDefinition ($prefix + ($methods -join "`n") + $suffix)
+Add-Type -TypeDefinition ($prefix + ($methods -join "`n") + $suffix + "`n" + $diagnosticsHelper)
 [DeckSelectionRegression.Checks]::Run()

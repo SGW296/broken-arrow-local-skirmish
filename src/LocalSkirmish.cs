@@ -31,7 +31,7 @@ using Il2CppBrokenArrow.MissionEditor.Inspector;
 using Il2CppBrokenArrow.Shared.Ecs;
 using Il2CppNetworkCommon.Enums.Common;
 
-[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "3.0.0", "BovineOverlord; local UI fork")]
+[assembly: MelonInfo(typeof(BALocalSkirmish.Core), "BA Local Skirmish", "3.0.1", "BovineOverlord; local UI fork")]
 [assembly: MelonGame(null, null)]
 // Hooks are installed explicitly below so failures can block launching. Without this
 // opt-out, MelonLoader installs them again and the second load prefix clears the plan.
@@ -87,9 +87,9 @@ namespace BALocalSkirmish
         bool _profilePatchReady;
         readonly List<OptDef> _opts = new List<OptDef>();
         readonly Dictionary<int, int> _optVals = new Dictionary<int, int>();
-        int _diff = 2;          // 1=Easy, 2=Medium, 3=Hard (DifficultyLevel values)
+        int _diff = 2;          // 1=Easy, 2=Normal (native Medium), 3=Hard
         bool _hasDiff = true;
-        static readonly string[] _diffNames = { "None", "Easy", "Medium", "Hard" };
+        static readonly string[] _diffNames = { "None", "Easy", "Normal", "Hard" };
 
         // UI
         GameObject _root;
@@ -113,7 +113,7 @@ namespace BALocalSkirmish
         public override void OnInitializeMelon()
         {
             Instance = this;
-            LoggerInstance.Msg("BA Local Skirmish v3.0.0 local lobby initializing (manual patch registration only)...");
+            LoggerInstance.Msg("BA Local Skirmish v3.0.1 Normal-baseline diagnostics initializing (manual patch registration only)...");
             Patch(typeof(CreateLobbyPatch));
             _aiDeckPatchReady = Patch(typeof(AiPlayerDeckPatch))
                 & Patch(typeof(DeckAssignmentPatch)) & Patch(typeof(EndBattleDeckPatch))
@@ -286,15 +286,26 @@ namespace BALocalSkirmish
             _battleAiDecks.Clear(); _battleScenario = null;
             _battlePlayerDeck = null;
             StopDeckOverrides();
+            _waveDiagnostics.Reset(); _diagnosticFailureLogged = false;
             _aiLoadPending = false; _aiRestartAllowed = false;
         }
 
         internal void StopDeckOverrides()
         {
-            if (_deckOverridesActive)
-                MelonLogger.Msg("[LocalSkirmish] Deck and AI spawn overrides detached from the local battle.");
-            _deckOverridesActive = false; _deckSession = null;
-            _aiWaveCounts.Clear();
+            try
+            {
+                if (_deckOverridesActive)
+                {
+                    FlushWaveDiagnostics();
+                    MelonLogger.Msg("[LocalSkirmish] Deck and AI spawn overrides detached from the local battle.");
+                }
+            }
+            catch (Exception e) { DiagnosticFailure(e); }
+            finally
+            {
+                _deckOverridesActive = false; _deckSession = null;
+                _aiWaveCounts.Clear();
+            }
         }
 
         bool MatchesBattleScenario()
@@ -401,6 +412,7 @@ namespace BALocalSkirmish
         {
             bool needsExactPlan = _battleClosedSlots.Count > 0 || _battleAiProfiles.Count > 0;
             StopDeckOverrides();
+            _waveDiagnostics.Reset(); _diagnosticFailureLogged = false;
             if (_battlePlayerDeck == null) return;
             try
             {
@@ -420,6 +432,7 @@ namespace BALocalSkirmish
                 _deckOverridesActive = true;
                 _aiLoadPending = false;
                 _aiRestartAllowed = true;
+                LogRuntimeSlotSnapshot(session);
                 MelonLogger.Msg($"[LocalSkirmish] Local plan bound: human UID {human.UID}, {_battleAiDecks.Count} custom AI decks, {_battleAiProfiles.Count} native AI presets, {_battleClosedSlots.Count} closed slots.");
             }
             catch (Exception e)
@@ -605,7 +618,7 @@ namespace BALocalSkirmish
                 var meta0 = _maps[_mapIdx].MetaFile;
                 _hasDiff = meta0 != null && meta0.HasDifficulty;
                 int d = 2; try { d = (int)meta0.MEStartDifficulty; } catch { }
-                _diff = (d >= 1 && d <= 3) ? d : 2;
+                _diff = TypeOf(_maps[_mapIdx]) == ScenarioType.Skirmish ? 2 : (d >= 1 && d <= 3) ? d : 2;
             }
             catch { _hasDiff = true; _diff = 2; }
             try
@@ -734,6 +747,10 @@ namespace BALocalSkirmish
                 // hand our option choices to the applier (runs after ChangeScene sets up the load)
                 PendingOptions.Clear();
                 foreach (var kv in _optVals) PendingOptions[kv.Key] = kv.Value;
+                foreach (var option in _opts)
+                    MelonLogger.Msg($"[LocalSkirmish] Requested option UID {option.Uid} '{option.RawName}' = {_optVals[option.Uid]}."
+                        + (string.Equals(option.RawName, "ui_lobby_Size_Title", StringComparison.OrdinalIgnoreCase)
+                            ? " This is a requested size option, not a measured resolved play area." : ""));
 
                 MelonLogger.Msg($"[LocalSkirmish] Launching '{_mapNames[_mapIdx]}' player deck '{_deckNames[_deckIdx]}', {_battleAiDecks.Count} custom AI deck(s), {_battleAiProfiles.Count} native preset(s), {_battleClosedSlots.Count} closed slot(s), {PendingOptions.Count} option(s).");
                 DestroyUI();
@@ -779,6 +796,7 @@ namespace BALocalSkirmish
         {
             __state = __instance.UnitInfo;
             Core.Instance?.OverrideAiSpawn(__instance);
+            Core.Instance?.TraceSpawnDecision(__instance, __state);
         }
 
         static void Postfix(NodeSpawnMultiUnits __instance, MultiUnits __state)

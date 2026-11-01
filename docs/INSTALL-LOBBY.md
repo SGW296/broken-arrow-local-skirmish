@@ -1,4 +1,4 @@
-# Local Skirmish Lobby 3.0.0 — local fork
+# Local Skirmish Lobby 3.0.1 — Normal baseline diagnostics
 
 Native-style offline lobby for the existing Broken Arrow v1.2.0 + MelonLoader setup.
 This is a local fork, not an official game or upstream mod release.
@@ -11,11 +11,19 @@ This is a local fork, not an official game or upstream mod release.
    `C:\Games\Broken Arrow\Mods`, replacing the existing DLL.
 3. Keep the existing loader and working offline launcher. Do not run `install.bat`, copy rollback
    directories into Mods, or leave a second renamed DLL copy in Mods.
-4. Launch as usual and choose Skirmish. The log identifies **3.0.0** and should report successful
+4. Launch as usual and choose Skirmish. The log identifies **3.0.1** and should report successful
    closed-slot and native-AI-preset hook registration.
 
 This package has not changed your installed game, loader or mod. No game assets are redistributed.
 Existing map/deck presets retain the same saved-settings schema.
+
+### What changed in 3.0.1
+
+Normal is the new label for native Medium (value 2) and the default for new/reset skirmish setups.
+Saved Hard/Easy choices remain, so select **Normal** for the next baseline test. “Reset setup” resets
+to the mod's defaults. AI reinforcement strength, timing and resource rules are unchanged.
+New logs record requested/forwarded waves, owners/categories, runtime slot flags and requested map
+options. They do not claim confirmed unit creation or resolved Auto size. See `NORMAL-BASELINE.md`.
 
 ## Smaller matches and no-player slots
 
@@ -46,8 +54,8 @@ Native and custom armies can coexist. The team nation selector filters choices a
 incompatible selections with matching available armies. **Any nation** permits mixed/mirror armies.
 The human selects a full available deck. Difficulty remains one scenario-wide setting.
 
-Closed slots, nation filters and profile IDs persist with named setups. Scenario defaults restore
-the original all-active/default-deck baseline. Campaign/PvE player setup remains scenario-controlled.
+Closed slots, nation filters and profile IDs persist with named setups. Reset setup restores
+the all-active/default-deck baseline with Normal difficulty. Campaign/PvE player setup remains scenario-controlled.
 
 ## Graphical overhaul
 
@@ -58,7 +66,7 @@ custom rows/teams still page. Previews, search, numeric settings and saved setup
 
 ## Rollback and settings
 
-Close the game and copy `rollback\BALocalSkirmish.dll` (2.8.0) over the installed DLL.
+Close the game and copy `rollback\BALocalSkirmish.dll` (3.0.0) over the installed DLL.
 `upstream-original\BALocalSkirmish.dll` is the original 2.6.3 mod. Restore your settings backup when
 rolling back: older versions ignore new fields and can discard them when saving.
 
@@ -74,10 +82,11 @@ Built against local v1.2.0 assemblies, net6.0/x64, without warnings/errors. Auto
 slot policy, runtime activation/identity, direct wave suppression, native army binding, mixed armies,
 restart/cleanup, persistence and borrowed UI assets. Managed Harmony dispatch is exercised. Native
 code and shipped-graph inspection support the chosen hook points; tests do not run the native game.
-All 633 managed checks and the Harmony registration fixture pass; see `VALIDATION-3.0.0.md`.
+The 3.0.0 validation is historical; see `VALIDATION-3.0.1.md` for the current build checks.
 
-**This release has not been tested in a running match.** First test 1v1 on Airbase with visibly
-different native presets, then uneven teams and a restart. Verify closed owners never spawn, chosen
+The prior 3.0.0 Airbase/Hard smoke test passed, including an observed enemy jet. **The 3.0.1
+diagnostic update has not yet been tested in a running match.** First repeat the same Airbase 1v1
+setup using Normal difficulty, then test uneven teams and a restart. Verify closed owners never spawn, chosen
 armies appear, objectives work, settings persist and UI fits your resolution. Preserve
 `MelonLoader\Latest.log` before relaunch if anything fails.
 

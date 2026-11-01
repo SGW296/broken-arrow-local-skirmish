@@ -112,7 +112,7 @@ namespace BALocalSkirmish
             }
             if (_hasDiff) _diffLabel = SettingRow("Difficulty", 4, () =>
             {
-                OpenPicker("Scenario difficulty", new List<Choice> { new Choice(1, "Easy"), new Choice(2, "Medium"), new Choice(3, "Hard") }, value => { _diff = value; UpdateLabels(); });
+                OpenPicker("Scenario difficulty", new List<Choice> { new Choice(1, "Easy"), new Choice(2, "Normal", "Balance reference; maps to the game's Medium difficulty."), new Choice(3, "Hard") }, value => { _diff = value; UpdateLabels(); });
             });
             else MakeLabel(panel, -624, 4, 360, 34, "Difficulty controlled by scenario", 15, TextAnchor.MiddleLeft, _skin.MutedText);
             int optionPages = Math.Max(1, (_opts.Count + 3) / 4);
@@ -176,7 +176,7 @@ namespace BALocalSkirmish
             MakeInput(panel, -536, -365, 300, _presetName, "Preset name", value => _presetName = value);
             MakeButton(panel, -294, -365, 146, 32, "Save", SavePreset, _skin.Control, 16).interactable = _settingsWritable && _mapIdx >= 0;
             MakeButton(panel, -132, -365, 146, 32, "Load", LoadPreset, _skin.Control, 16).interactable = _mapIdx >= 0;
-            MakeButton(panel, 80, -365, 236, 32, "Scenario defaults", ResetDefaults, _skin.Control, 16).interactable = _mapIdx >= 0;
+            MakeButton(panel, 80, -365, 236, 32, "Reset setup", ResetDefaults, _skin.Control, 16).interactable = _mapIdx >= 0;
             MakeButton(panel, 382, -365, 280, 32, "Match format  ▾", PickMatchFormat, _skin.Control, 16).interactable = IsSkirmishMap();
             MakeButton(panel, 680, -365, 248, 32, "Fill all AI slots", FillAllBots, _skin.Control, 16).interactable = IsSkirmishMap();
 

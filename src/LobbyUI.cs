@@ -308,7 +308,7 @@ namespace BALocalSkirmish
         void ResetDefaults()
         {
             _teamCountries.Clear(); RefreshDecks(); RefreshOptions(); _optionPage = 0; _teamPage = _rosterPage = 0;
-            _notice = "Scenario defaults restored, including decks and difficulty.";
+            _notice = "Setup defaults restored, including Normal difficulty for skirmish.";
             BuildUI();
         }
 
