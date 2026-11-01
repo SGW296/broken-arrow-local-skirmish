@@ -5,6 +5,11 @@ Newer game versions and online modes have not been validated. This is an experim
 
 ## Build and automated checks
 
+The local Release build passed with **0 warnings and 0 errors**. The release tooling passed
+**694 managed assertions**, the separate managed Harmony-registration fixture, **72 public
+installer/package assertions** and **7 diagnostic-collector assertions**. Tests use owned stand-ins
+and temporary fake game folders; no game dependencies are bundled with the public CI or package.
+
 The release validation report and package manifest record the actual built DLL hash, source commit,
 observed managed assertion totals and Harmony registration result. Public CI runs managed fixtures
 without game dependencies; it does not build the native-facing DLL or run Unity/IL2CPP.
@@ -26,9 +31,14 @@ rules or a confirmed final victory. They are not public-alpha live acceptance.
 
 ## Alpha live checks
 
-Record the exact build, resolution and results here after the graphical pass. Check the lobby and
-pickers, native previews, current selections, active counts, closed cards, saved setup restore and
-return/reopen. Broader acceptance should include another map, uneven teams, mixed army modes,
+The 3.1.0-alpha.1 candidate was backed up, installed and hash-verified on the local v1.2.0 setup.
+The startup log identifies the alpha and records successful registration of all seven hooks, with
+no recorded mod error. That is startup evidence, not visual or match acceptance.
+
+**The new graphical pass has not yet been visually checked in-game.** User-run acceptance is
+pending for the lobby/pickers, native previews, current selections, active counts, closed cards,
+Escape handling, saved setup restore and return/reopen. Screenshots have not been captured for
+this alpha. Broader acceptance should include another map, uneven teams, mixed army modes,
 restart, full-match victory and failure recovery.
 
 Until individually observed and recorded, those checks remain outstanding. Missing evidence must
